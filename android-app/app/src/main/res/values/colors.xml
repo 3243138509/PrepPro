@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand_cyan">#0CA7A5</color>
+    <color name="brand_cyan_dark">#087B79</color>
+    <color name="accent_teal">#0E8B89</color>
+    <color name="danger_red">#C62828</color>
+
+    <color name="ink_900">#122429</color>
+    <color name="ink_700">#365760</color>
+    <color name="ink_600">#4A6A72</color>
+
+    <color name="surface_white">#F9FCFC</color>
+    <color name="surface_stroke">#CFE1E1</color>
+
+    <color name="background_top">#D6F1EF</color>
+    <color name="background_bottom">#EAF4F6</color>
+</resources>

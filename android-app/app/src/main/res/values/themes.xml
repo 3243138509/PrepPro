@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.RemoteCapture" parent="Theme.MaterialComponents.Light.NoActionBar">
+        <item name="colorPrimary">@color/brand_cyan</item>
+        <item name="colorPrimaryVariant">@color/brand_cyan_dark</item>
+        <item name="colorSecondary">@color/accent_teal</item>
+        <item name="android:statusBarColor">@color/background_top</item>
+        <item name="android:windowBackground">@drawable/bg_app_gradient</item>
+    </style>
+
+    <style name="Widget.RemoteCapture.Button.Primary" parent="Widget.MaterialComponents.Button">
+        <item name="android:textAllCaps">false</item>
+        <item name="cornerRadius">14dp</item>
+        <item name="backgroundTint">@color/brand_cyan</item>
+        <item name="android:textColor">@android:color/white</item>
+        <item name="android:paddingTop">10dp</item>
+        <item name="android:paddingBottom">10dp</item>
+    </style>
+
+    <style name="Widget.RemoteCapture.Button.Secondary" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:textAllCaps">false</item>
+        <item name="cornerRadius">14dp</item>
+        <item name="strokeColor">@color/accent_teal</item>
+        <item name="android:textColor">@color/ink_900</item>
+        <item name="android:paddingTop">10dp</item>
+        <item name="android:paddingBottom">10dp</item>
+    </style>
+</resources>

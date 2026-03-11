@@ -1,0 +1,29 @@
+# Android/Gradle generated files
+*.gradle
+**/.gradle/
+**/.kotlin/
+android-app/build/
+android-app/app/build/
+android-app/.gradle/
+
+# Android local machine config
+android-app/local.properties
+
+# Python virtual env and caches
+.venv/
+**/__pycache__/
+*.py[cod]
+
+# Local logs/artifacts
+*.log
+
+# Local secret env files
+.env
+windows-server/.env
+windows-server/model_profiles.json
+
+windows-server/__pycache__/
+
+windows-server/build/
+windows-server/dist/
+windows-server/*.spec

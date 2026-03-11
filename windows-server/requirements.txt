@@ -1,0 +1,6 @@
+mss==10.1.0
+Pillow==11.1.0
+pystray==0.19.5
+python-dotenv==1.0.1
+openai==1.65.5
+rapidocr-api==0.2.0
