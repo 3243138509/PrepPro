@@ -15,7 +15,7 @@
         android:layout_height="wrap_content"
         android:fontFamily="sans-serif-condensed"
         android:letterSpacing="0.04"
-        android:text="Remote Capture"
+        android:text="PrepPro"
         android:textColor="@color/ink_900"
         android:textSize="32sp"
         android:textStyle="bold" />

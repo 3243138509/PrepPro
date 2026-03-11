@@ -1,7 +1,7 @@
 <div align="center">
-	<img width="42%" src="docs/image_video/icon.png" alt="Remote Capture">
+  <img width="42%" src="docs/image_video/icon.png" alt="PrepPro">
 
-# Remote Capture MVP
+# PrepPro MVP
 
 手机端与电脑服务端互联
 实时预览、剪切板监听、问题解析、结果回传。
@@ -31,7 +31,7 @@
 
 ## ✨ 简介
 
-Remote Capture MVP 是一个手机端与电脑端协同的远程截图与解析系统。
+PrepPro MVP 是一个手机端与电脑端协同的远程截图与解析系统。
 
 手机通过 TCP 连接到电脑服务端后，可触发截图并回传到手机显示，同时支持 OCR 预扫描与模型解析流程。
 

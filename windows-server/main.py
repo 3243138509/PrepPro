@@ -21,7 +21,9 @@ from ocr import build_prompt_with_ocr, scan_image_base64
 from protocol import recv_frame, send_frame
 
 
-_log_file = Path(__file__).with_name("server.log")
+_log_dir = Path(__file__).with_name("log")
+_log_dir.mkdir(parents=True, exist_ok=True)
+_log_file = _log_dir / "server.log"
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
