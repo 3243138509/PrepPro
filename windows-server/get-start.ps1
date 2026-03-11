@@ -32,6 +32,7 @@ $venvBaseDir = if ($hasProjectRoot) { $workspaceDir } else { $scriptDir }
 $venvDir = Join-Path $venvBaseDir ".venv"
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
 $venvPythonW = Join-Path $venvDir "Scripts\pythonw.exe"
+$bundledVenvMarker = Join-Path $venvDir ".preppro_bundled"
 $requirements = Join-Path $scriptDir "requirements.txt"
 $mainFile = Join-Path $scriptDir "main.py"
 $pythonInstallerUrl = "https://www.python.org/ftp/python/3.10.10/python-3.10.10-amd64.exe"
@@ -165,6 +166,11 @@ else {
 
 if (-not (Test-Path $venvPython)) {
     throw "Failed to create virtual environment: $venvPython not found."
+}
+
+if ((Test-Path $bundledVenvMarker) -and (-not $SkipInstall)) {
+    Write-Host "[PrepPro] Bundled venv detected. Skipping pip install for offline-safe startup."
+    $SkipInstall = $true
 }
 
 if (-not $SkipInstall) {

@@ -7,7 +7,7 @@ import tkinter as tk
 import traceback
 import uuid
 from pathlib import Path
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import Any
 
 import pystray
@@ -509,7 +509,7 @@ def start_server() -> None:
 
 
 def _create_tray_icon_image() -> Image.Image:
-    icon_path = Path(__file__).with_name("image_video") / "icon.png"
+    icon_path = Path(__file__).with_name("image") / "icon.png"
     if icon_path.exists():
         return Image.open(icon_path)
     # fallback: generated icon
@@ -533,11 +533,12 @@ if __name__ == "__main__":
 
     # ── Tkinter info window ──────────────────────────────────────────────────
     root = tk.Tk()
-    root.title("PropPro Server")
+    root.title("PrepPro 电脑端")
     root.resizable(False, False)
-    root.withdraw()  # start hidden in tray
+    root.geometry("560x360")
+    root.minsize(560, 360)
 
-    _icon_path = Path(__file__).with_name("image_video") / "icon.png"
+    _icon_path = Path(__file__).with_name("image") / "icon.png"
     if _icon_path.exists():
         try:
             _photo = tk.PhotoImage(file=str(_icon_path))
@@ -545,36 +546,84 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-    _frame = ttk.Frame(root, padding=24)
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+    except Exception:
+        pass
+
+    root.configure(bg="#eef3f8")
+    style.configure("App.TFrame", background="#eef3f8")
+    style.configure("Card.TFrame", background="#ffffff")
+    style.configure("Title.TLabel", background="#ffffff", foreground="#0f172a", font=("Segoe UI", 16, "bold"))
+    style.configure("Hint.TLabel", background="#ffffff", foreground="#64748b", font=("Segoe UI", 10))
+    style.configure("Key.TLabel", background="#ffffff", foreground="#64748b", font=("Segoe UI", 10))
+    style.configure("Val.TLabel", background="#ffffff", foreground="#0f172a", font=("Segoe UI", 10, "bold"))
+    style.configure("Status.TLabel", background="#ffffff", foreground="#16a34a", font=("Segoe UI", 10, "bold"))
+    style.configure("Tray.TButton", font=("Segoe UI", 10, "bold"))
+
+    _outer = ttk.Frame(root, style="App.TFrame", padding=18)
+    _outer.pack(fill=tk.BOTH, expand=True)
+
+    _frame = ttk.Frame(_outer, style="Card.TFrame", padding=22)
     _frame.pack(fill=tk.BOTH, expand=True)
 
-    ttk.Label(_frame, text="PropPro Server", font=("", 14, "bold")).grid(
-        row=0, column=0, columnspan=2, pady=(0, 14), sticky="w"
+    ttk.Label(_frame, text="PrepPro 电脑端", style="Title.TLabel").grid(
+        row=0, column=0, columnspan=2, sticky="w"
+    )
+    ttk.Label(_frame, text="连接成功后保持窗口尺寸稳定，支持托盘管理", style="Hint.TLabel").grid(
+        row=1, column=0, columnspan=2, pady=(4, 16), sticky="w"
     )
 
     def _add_info_row(row: int, label: str, value: str, fg: str = "") -> None:
-        ttk.Label(_frame, text=label, foreground="#888").grid(
+        ttk.Label(_frame, text=label, style="Key.TLabel").grid(
             row=row, column=0, sticky="nw", padx=(0, 20), pady=3
         )
-        lbl = ttk.Label(_frame, text=value)
+        lbl_style = "Val.TLabel"
         if fg:
-            lbl.configure(foreground=fg)
+            lbl_style = "Status.TLabel"
+        lbl = ttk.Label(_frame, text=value, style=lbl_style)
         lbl.grid(row=row, column=1, sticky="w", pady=3)
 
-    _add_info_row(1, "状态", "● 运行中", "green")
-    _add_info_row(2, "端口", str(config.PORT))
+    _add_info_row(2, "状态", "● 运行中", "green")
+    _add_info_row(3, "端口", str(config.PORT))
     _addr_lines = "\n".join(f"{ip}:{config.PORT}" for ip in (ips if ips else ["localhost"]))
-    _add_info_row(3, "地址", _addr_lines)
-    _add_info_row(4, "日志", str(_log_file))
+    _add_info_row(4, "地址", _addr_lines)
+    _add_info_row(5, "日志", str(_log_file))
 
     ttk.Separator(_frame, orient="horizontal").grid(
-        row=5, column=0, columnspan=2, sticky="ew", pady=14
+        row=6, column=0, columnspan=2, sticky="ew", pady=14
     )
-    ttk.Button(_frame, text="最小化到托盘", command=lambda: root.withdraw()).grid(
-        row=6, column=0, columnspan=2
+    ttk.Button(_frame, text="隐藏到托盘", style="Tray.TButton", command=lambda: root.withdraw()).grid(
+        row=7, column=0, sticky="w"
+    )
+    ttk.Label(_frame, text="最小化会保留在任务栏；关闭会弹出确认框", style="Hint.TLabel").grid(
+        row=7, column=1, sticky="e"
     )
 
-    root.protocol("WM_DELETE_WINDOW", lambda: root.withdraw())
+    _frame.columnconfigure(0, weight=1)
+    _frame.columnconfigure(1, weight=2)
+
+    _lifecycle_state = {"is_shutting_down": False}
+
+    def _shutdown_app() -> None:
+        if _lifecycle_state["is_shutting_down"]:
+            return
+        _lifecycle_state["is_shutting_down"] = True
+        _stop_event.set()
+        tray_icon = _tray_state.get("icon")
+        if tray_icon is not None:
+            try:
+                tray_icon.stop()
+            except Exception:
+                pass
+        root.after(10, root.quit)
+
+    def _confirm_exit_from_window() -> None:
+        if messagebox.askyesno("确认关闭", "确认关闭 PrepPro 电脑端吗？"):
+            _shutdown_app()
+
+    root.protocol("WM_DELETE_WINDOW", _confirm_exit_from_window)
 
     def _pump_gui() -> None:
         while True:
@@ -588,26 +637,29 @@ if __name__ == "__main__":
     root.after(50, _pump_gui)
 
     # ── System tray ──────────────────────────────────────────────────────────
+    _tray_state: dict[str, Any] = {"icon": None}
+
     def _show_window() -> None:
         def _do() -> None:
             root.deiconify()
+            root.state("normal")
             root.lift()
             root.focus_force()
         _gui_queue.put(_do)
 
-    def _on_quit(icon: pystray.Icon, item: pystray.MenuItem) -> None:
+    def _on_quit(icon, item) -> None:
         logging.info("tray: quit requested")
-        _stop_event.set()
-        icon.stop()
-        _gui_queue.put(root.quit)
+        _gui_queue.put(_shutdown_app)
 
-    tooltip = f"PropPro  |  {ip_str}:{config.PORT}"
+    tooltip = f"PrepPro  |  {ip_str}:{config.PORT}"
     menu = pystray.Menu(
         pystray.MenuItem("显示主界面", lambda icon, item: _show_window(), default=True),
+        pystray.MenuItem("隐藏到托盘", lambda icon, item: _gui_queue.put(root.withdraw)),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("退出", _on_quit),
     )
-    tray = pystray.Icon("PropPro", _create_tray_icon_image(), tooltip, menu)
+    tray = pystray.Icon("PrepPro", _create_tray_icon_image(), tooltip, menu)
+    _tray_state["icon"] = tray
     tray.run_detached()
 
     root.mainloop()
