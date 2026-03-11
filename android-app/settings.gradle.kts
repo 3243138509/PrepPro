@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "RemoteCapture"
+rootProject.name = "PropPro"
 include(":app")

@@ -13,7 +13,7 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
         android:supportsRtl="true"
-        android:theme="@style/Theme.RemoteCapture">
+        android:theme="@style/Theme.PropPro">
         <activity
             android:name=".ModelSettingsActivity"
             android:exported="false"

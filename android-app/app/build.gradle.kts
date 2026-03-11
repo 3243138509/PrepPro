@@ -14,11 +14,11 @@ if (hasReleaseKeystore) {
 }
 
 android {
-    namespace = "com.remotecapture.mobile"
+    namespace = "com.PropPro.mobile"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.remotecapture.mobile"
+        applicationId = "com.PropPro.mobile"
         minSdk = 24
         targetSdk = 35
         versionCode = 2

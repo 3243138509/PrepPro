@@ -1,4 +1,4 @@
-package com.remotecapture.mobile
+package com.PropPro.mobile
 
 import android.os.Bundle
 import android.widget.ArrayAdapter
@@ -10,7 +10,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import com.remotecapture.mobile.net.TcpClient
+import com.PropPro.mobile.net.TcpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

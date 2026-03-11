@@ -1,4 +1,4 @@
-package com.remotecapture.mobile.widget
+package com.PropPro.mobile.widget
 
 import android.content.Context
 import android.graphics.Bitmap

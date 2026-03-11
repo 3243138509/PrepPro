@@ -1,9 +1,9 @@
-package com.remotecapture.mobile.net
+package com.PropPro.mobile.net
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
-import com.remotecapture.mobile.protocol.Frames
+import com.PropPro.mobile.protocol.Frames
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream

@@ -533,7 +533,7 @@ if __name__ == "__main__":
 
     # ── Tkinter info window ──────────────────────────────────────────────────
     root = tk.Tk()
-    root.title("RemoteCapture Server")
+    root.title("PropPro Server")
     root.resizable(False, False)
     root.withdraw()  # start hidden in tray
 
@@ -548,7 +548,7 @@ if __name__ == "__main__":
     _frame = ttk.Frame(root, padding=24)
     _frame.pack(fill=tk.BOTH, expand=True)
 
-    ttk.Label(_frame, text="RemoteCapture Server", font=("", 14, "bold")).grid(
+    ttk.Label(_frame, text="PropPro Server", font=("", 14, "bold")).grid(
         row=0, column=0, columnspan=2, pady=(0, 14), sticky="w"
     )
 
@@ -601,13 +601,13 @@ if __name__ == "__main__":
         icon.stop()
         _gui_queue.put(root.quit)
 
-    tooltip = f"RemoteCapture  |  {ip_str}:{config.PORT}"
+    tooltip = f"PropPro  |  {ip_str}:{config.PORT}"
     menu = pystray.Menu(
         pystray.MenuItem("显示主界面", lambda icon, item: _show_window(), default=True),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("退出", _on_quit),
     )
-    tray = pystray.Icon("RemoteCapture", _create_tray_icon_image(), tooltip, menu)
+    tray = pystray.Icon("PropPro", _create_tray_icon_image(), tooltip, menu)
     tray.run_detached()
 
     root.mainloop()

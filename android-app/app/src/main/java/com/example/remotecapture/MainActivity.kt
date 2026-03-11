@@ -1,4 +1,4 @@
-package com.remotecapture.mobile
+package com.PropPro.mobile
 
 import android.Manifest
 import android.content.ContentValues
@@ -35,8 +35,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.viewpager.widget.PagerAdapter
 import androidx.viewpager.widget.ViewPager
-import com.remotecapture.mobile.net.TcpClient
-import com.remotecapture.mobile.widget.CropEditorView
+import com.PropPro.mobile.net.TcpClient
+import com.PropPro.mobile.widget.CropEditorView
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.button.MaterialButton
 import io.noties.markwon.Markwon
@@ -520,7 +520,7 @@ class MainActivity : AppCompatActivity() {
                 put(MediaStore.Images.Media.DISPLAY_NAME, filename)
                 put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/RemoteCapture")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/PropPro")
                 }
             }
 
@@ -534,7 +534,7 @@ class MainActivity : AppCompatActivity() {
                 if (!ok) error("图片写入失败")
             }
 
-            Toast.makeText(this, "已保存到相册: Pictures/RemoteCapture", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "已保存到相册: Pictures/PropPro", Toast.LENGTH_LONG).show()
             persistEditorState()
         } catch (ex: Exception) {
             Toast.makeText(this, "保存失败: ${ex.message}", Toast.LENGTH_LONG).show()

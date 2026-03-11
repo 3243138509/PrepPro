@@ -1,4 +1,4 @@
-package com.remotecapture.mobile.protocol
+package com.PropPro.mobile.protocol
 
 import org.json.JSONObject
 import java.io.DataInputStream

@@ -21,8 +21,8 @@ $resolvedScriptDir = (Resolve-Path $scriptDir).Path
 if ($resolvedScriptDir -match "[\u4e00-\u9fff]") {
     $pathContainsChinese = Join-CodePoints @(0x68C0, 0x6D4B, 0x5230, 0x8DEF, 0x5F84, 0x5305, 0x542B, 0x4E2D, 0x6587)
     $moveToAsciiPath = Join-CodePoints @(0x8BF7, 0x653E, 0x5230, 0x6CA1, 0x6709, 0x4E2D, 0x6587, 0x8DEF, 0x5F84, 0x7684, 0x5730, 0x65B9, 0x7136, 0x540E, 0x6267, 0x884C, 0xFF0C, 0x4F8B, 0x5982, 0xFF1A)
-    Write-Host ("[RemoteCapture] {0}: {1}" -f $pathContainsChinese, $resolvedScriptDir) -ForegroundColor Yellow
-    Write-Host ("[RemoteCapture] {0} D:\" -f $moveToAsciiPath) -ForegroundColor Yellow
+    Write-Host ("[PropPro] {0}: {1}" -f $pathContainsChinese, $resolvedScriptDir) -ForegroundColor Yellow
+    Write-Host ("[PropPro] {0} D:\" -f $moveToAsciiPath) -ForegroundColor Yellow
     exit 1
 }
 
@@ -37,7 +37,7 @@ $mainFile = Join-Path $scriptDir "main.py"
 $pythonInstallerUrl = "https://www.python.org/ftp/python/3.10.10/python-3.10.10-amd64.exe"
 
 if (-not $hasProjectRoot) {
-    Write-Host "[RemoteCapture] double_end_connect not found in parent path; using windows-server local venv."
+    Write-Host "[PropPro] double_end_connect not found in parent path; using windows-server local venv."
 }
 
 function Get-UserPythonInstallCandidates {
@@ -183,7 +183,7 @@ if (-not $SkipRun) {
     Write-Host "[4/4] Starting windows-server (tray mode)..."
     $launcher = if (Test-Path $venvPythonW) { $venvPythonW } else { $venvPython }
     Start-Process -FilePath $launcher -ArgumentList "`"$mainFile`"" -WorkingDirectory $scriptDir
-    Write-Host "[RemoteCapture] Server started. Check system tray."
+    Write-Host "[PropPro] Server started. Check system tray."
 }
 else {
     Write-Host "[4/4] SkipRun set. Server was not started."
