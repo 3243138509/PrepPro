@@ -8,6 +8,24 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $scriptDir
 
+function Join-CodePoints {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int[]]$Points
+    )
+
+    return -join ($Points | ForEach-Object { [char]$_ })
+}
+
+$resolvedScriptDir = (Resolve-Path $scriptDir).Path
+if ($resolvedScriptDir -match "[\u4e00-\u9fff]") {
+    $pathContainsChinese = Join-CodePoints @(0x68C0, 0x6D4B, 0x5230, 0x8DEF, 0x5F84, 0x5305, 0x542B, 0x4E2D, 0x6587)
+    $moveToAsciiPath = Join-CodePoints @(0x8BF7, 0x653E, 0x5230, 0x6CA1, 0x6709, 0x4E2D, 0x6587, 0x8DEF, 0x5F84, 0x7684, 0x5730, 0x65B9, 0x7136, 0x540E, 0x6267, 0x884C, 0xFF0C, 0x4F8B, 0x5982, 0xFF1A)
+    Write-Host ("[RemoteCapture] {0}: {1}" -f $pathContainsChinese, $resolvedScriptDir) -ForegroundColor Yellow
+    Write-Host ("[RemoteCapture] {0} D:\" -f $moveToAsciiPath) -ForegroundColor Yellow
+    exit 1
+}
+
 $workspaceDir = Split-Path -Parent $scriptDir
 $hasProjectRoot = $workspaceDir -match "double_end_connect"
 $venvBaseDir = if ($hasProjectRoot) { $workspaceDir } else { $scriptDir }
