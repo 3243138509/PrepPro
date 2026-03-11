@@ -507,7 +507,7 @@ def start_server() -> None:
 
 
 def _create_tray_icon_image() -> Image.Image:
-    icon_path = Path(__file__).with_name("image") / "icon.png"
+    icon_path = Path(__file__).with_name("image_video") / "icon.png"
     if icon_path.exists():
         return Image.open(icon_path)
     # fallback: generated icon
@@ -535,7 +535,7 @@ if __name__ == "__main__":
     root.resizable(False, False)
     root.withdraw()  # start hidden in tray
 
-    _icon_path = Path(__file__).with_name("image") / "icon.png"
+    _icon_path = Path(__file__).with_name("image_video") / "icon.png"
     if _icon_path.exists():
         try:
             _photo = tk.PhotoImage(file=str(_icon_path))
