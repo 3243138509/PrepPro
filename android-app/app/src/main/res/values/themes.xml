@@ -25,4 +25,13 @@
         <item name="android:paddingTop">10dp</item>
         <item name="android:paddingBottom">10dp</item>
     </style>
+
+    <style name="Widget.PrepPro.Button.Highlight" parent="Widget.MaterialComponents.Button">
+        <item name="android:textAllCaps">false</item>
+        <item name="cornerRadius">16dp</item>
+        <item name="backgroundTint">@color/accent_teal</item>
+        <item name="android:textColor">@android:color/white</item>
+        <item name="android:paddingTop">11dp</item>
+        <item name="android:paddingBottom">11dp</item>
+    </style>
 </resources>

@@ -103,12 +103,12 @@
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/buttonAddModelSetting"
-                        style="@style/Widget.PrepPro.Button.Primary"
+                        style="@style/Widget.PrepPro.Button.Highlight"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
                         android:layout_weight="1"
-                        android:text="添加并启用" />
+                        android:text="保存并启用" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -141,8 +141,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:background="@drawable/bg_input_field"
-                    android:padding="10dp" />
+                    android:background="@drawable/bg_spinner_field"
+                    android:popupBackground="@drawable/bg_spinner_popup" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/buttonUseSelectedProfile"

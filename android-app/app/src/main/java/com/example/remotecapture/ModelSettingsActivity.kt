@@ -1,6 +1,8 @@
 package com.PrepPro.mobile
 
 import android.os.Bundle
+import android.view.MotionEvent
+import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -9,8 +11,10 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.PrepPro.mobile.net.TcpClient
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -71,7 +75,55 @@ class ModelSettingsActivity : AppCompatActivity() {
             showBatchDeleteDialog()
         }
 
+        setupButtonAnimations()
+
         loadSettings()
+    }
+
+    private fun setupButtonAnimations() {
+        listOf(detectButton, addButton, useSelectedButton, deleteSelectedButton, batchDeleteButton).forEach { button ->
+            button.setOnTouchListener { view, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> animateButtonPressed(view, true)
+                    MotionEvent.ACTION_UP,
+                    MotionEvent.ACTION_CANCEL -> animateButtonPressed(view, false)
+                }
+                false
+            }
+        }
+    }
+
+    private fun animateButtonPressed(view: View, pressed: Boolean) {
+        view.animate()
+            .scaleX(if (pressed) 0.98f else 1f)
+            .scaleY(if (pressed) 0.98f else 1f)
+            .alpha(if (pressed) 0.9f else 1f)
+            .setDuration(if (pressed) 90L else 150L)
+            .start()
+    }
+
+    private fun createStyledDialogBuilder(): MaterialAlertDialogBuilder {
+        return MaterialAlertDialogBuilder(this)
+    }
+
+    private fun animateDialogShow(dialog: AlertDialog) {
+        dialog.window?.setBackgroundDrawableResource(R.drawable.bg_dialog_surface)
+        dialog.window?.decorView?.let { decor ->
+            decor.alpha = 0f
+            decor.scaleX = 0.95f
+            decor.scaleY = 0.95f
+            decor.animate()
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(180L)
+                .start()
+        }
+        val accent = ContextCompat.getColor(this, R.color.accent_teal)
+        val ink = ContextCompat.getColor(this, R.color.ink_700)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accent)
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(ink)
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(ink)
     }
 
     private fun clientOrNull(): TcpClient? {
@@ -101,7 +153,7 @@ class ModelSettingsActivity : AppCompatActivity() {
     private fun bindProfiles(items: List<TcpClient.ModelSetting>, activeIndex: Int) {
         profiles = items
         if (items.isEmpty()) {
-            profilesSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, listOf("(无配置)"))
+            profilesSpinner.adapter = createPrettySpinnerAdapter(listOf("(无配置)"))
             return
         }
 
@@ -109,8 +161,7 @@ class ModelSettingsActivity : AppCompatActivity() {
             val activeTag = if (index == activeIndex) "[当前] " else ""
             "$activeTag${item.modelName} | ${item.apiUrl}"
         }
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, labels)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        val adapter = createPrettySpinnerAdapter(labels)
         profilesSpinner.adapter = adapter
 
         val safeIndex = activeIndex.coerceIn(0, items.lastIndex)
@@ -120,6 +171,12 @@ class ModelSettingsActivity : AppCompatActivity() {
         inputApiUrl.setText(selected.apiUrl)
         inputApiKey.setText(selected.apiKey)
         inputModelName.setText(selected.modelName)
+    }
+
+    private fun createPrettySpinnerAdapter(items: List<String>): ArrayAdapter<String> {
+        return ArrayAdapter(this, R.layout.item_spinner_selected, items).apply {
+            setDropDownViewResource(R.layout.item_spinner_dropdown)
+        }
     }
 
     private fun detectModels() {
@@ -166,7 +223,7 @@ class ModelSettingsActivity : AppCompatActivity() {
             }
         }.toTypedArray()
         var picked = 0
-        AlertDialog.Builder(this)
+        val dialog = createStyledDialogBuilder()
             .setTitle("请选择 MODEL_NAME")
             .setSingleChoiceItems(options, 0) { _, which ->
                 picked = which
@@ -176,6 +233,7 @@ class ModelSettingsActivity : AppCompatActivity() {
             }
             .setNegativeButton("取消", null)
             .show()
+        animateDialogShow(dialog)
     }
 
     private fun addModelSetting() {
@@ -264,7 +322,7 @@ class ModelSettingsActivity : AppCompatActivity() {
         }
 
         val target = profiles[selectedIndex]
-        AlertDialog.Builder(this)
+        val dialog = createStyledDialogBuilder()
             .setTitle("删除模型配置")
             .setMessage("确认删除 ${target.modelName} ?")
             .setPositiveButton("删除") { _, _ ->
@@ -272,6 +330,7 @@ class ModelSettingsActivity : AppCompatActivity() {
             }
             .setNegativeButton("取消", null)
             .show()
+        animateDialogShow(dialog)
     }
 
     private fun deleteSelectedModel(selectedIndex: Int) {
@@ -308,7 +367,7 @@ class ModelSettingsActivity : AppCompatActivity() {
         }.toTypedArray()
         val checked = BooleanArray(labels.size)
 
-        AlertDialog.Builder(this)
+        val dialog = createStyledDialogBuilder()
             .setTitle("批量删除模型")
             .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
                 checked[which] = isChecked
@@ -324,6 +383,7 @@ class ModelSettingsActivity : AppCompatActivity() {
             }
             .setNegativeButton("取消", null)
             .show()
+            animateDialogShow(dialog)
     }
 
     private fun executeBatchDelete(indices: List<Int>) {

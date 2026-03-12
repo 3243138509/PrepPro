@@ -3,6 +3,7 @@ package com.PrepPro.mobile
 import android.Manifest
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
+import android.animation.ArgbEvaluator
 import android.animation.ValueAnimator
 import android.content.ContentValues
 import android.content.Intent
@@ -13,8 +14,6 @@ import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
-import android.text.Editable
-import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -25,12 +24,12 @@ import android.view.Gravity
 import android.view.WindowManager
 import android.widget.ArrayAdapter
 import android.widget.Button
-import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import android.view.View as AndroidView
 import android.app.Dialog
 import androidx.appcompat.app.AlertDialog
 import androidx.activity.result.contract.ActivityResultContracts
@@ -44,6 +43,7 @@ import com.PrepPro.mobile.net.TcpClient
 import com.PrepPro.mobile.widget.CropEditorView
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import io.noties.markwon.Markwon
@@ -66,6 +66,9 @@ class MainActivity : AppCompatActivity() {
         private const val PREVIEW_HIDDEN_LEFT = 1
         private const val PREVIEW_HIDDEN_RIGHT = 2
         private const val PREVIEW_EDGE_REVEAL_DRAG_DP = 28f
+        private const val CONNECTION_STATE_CONNECTED = 1
+        private const val CONNECTION_STATE_RECONNECTING = 2
+        private const val CONNECTION_STATE_FAILED = 3
     }
 
     private var latestBitmap: Bitmap? = null
@@ -81,14 +84,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var floatingPreviewEdgeHandleText: TextView
     private lateinit var fullscreenTopBar: View
     private lateinit var fullscreenBackButton: TextView
-    private lateinit var hostInput: EditText
-    private lateinit var portInput: EditText
+    private lateinit var connectedHostText: TextView
+    private lateinit var connectionStatusDot: AndroidView
     private lateinit var statusText: TextView
     private lateinit var displaySpinner: Spinner
     private lateinit var analysisModeSpinner: Spinner
     private lateinit var targetLanguageSpinner: Spinner
     private lateinit var targetLanguageLayout: View
-    private lateinit var connectButton: Button
     private lateinit var captureButton: Button
     private lateinit var uploadAnalyzeButton: Button
     private lateinit var realtimeButton: MaterialButton
@@ -103,6 +105,9 @@ class MainActivity : AppCompatActivity() {
 
     private var rememberedEditorState: CropEditorView.EditorState? = null
     private var isConnected = false
+    private var connectedHost: String? = null
+    private var connectedPort: Int = 5001
+    private var reconnectPulseAnimator: ValueAnimator? = null
     private var selectedDisplayId = 1
     private var streamJob: Job? = null
     private var reconnectJob: Job? = null
@@ -181,9 +186,9 @@ class MainActivity : AppCompatActivity() {
         floatingPreviewEdgeHandleText = findViewById(R.id.textFloatingPreviewEdgeHandle)
         fullscreenTopBar = findViewById(R.id.fullscreenTopBar)
         fullscreenBackButton = findViewById(R.id.buttonFullscreenBack)
+        connectedHostText = findViewById(R.id.textConnectedHost)
+        connectionStatusDot = findViewById(R.id.viewConnectionStatusDot)
 
-        hostInput = captureRoot.findViewById(R.id.inputHost)
-        portInput = captureRoot.findViewById(R.id.inputPort)
         statusText = captureRoot.findViewById(R.id.textStatus)
         parseStateText = captureRoot.findViewById(R.id.textParseState)
         cropEditorView = findViewById(R.id.imageResult)
@@ -191,7 +196,6 @@ class MainActivity : AppCompatActivity() {
         analysisModeSpinner = captureRoot.findViewById(R.id.spinnerAnalysisMode)
         targetLanguageSpinner = captureRoot.findViewById(R.id.spinnerTargetLanguage)
         targetLanguageLayout = captureRoot.findViewById(R.id.layoutTargetLanguage)
-        connectButton = captureRoot.findViewById(R.id.buttonConnect)
         captureButton = captureRoot.findViewById(R.id.buttonCapture)
         val cropSaveButton = captureRoot.findViewById<Button>(R.id.buttonCropSave)
         val modelSettingsButton = captureRoot.findViewById<Button>(R.id.buttonModelSettings)
@@ -210,12 +214,8 @@ class MainActivity : AppCompatActivity() {
         restoreFloatingPreviewPosition()
         cropEditorView.setCropEditingEnabled(false)
 
-        hostInput.setText(connPrefs.getString("host", "10.189.57.17"))
-        portInput.setText(connPrefs.getString("port", "5001"))
-        attachHyphenStripper(hostInput)
-        attachHyphenStripper(portInput)
-        hostInput.clearFocus()
-        portInput.clearFocus()
+        updateConnectedHostBadge(null, null)
+        applyConnectionIndicator(CONNECTION_STATE_FAILED)
         findViewById<View>(android.R.id.content).requestFocus()
         rememberedEditorState = readEditorStateFromPrefs()
         setupDisplaySpinner(displaySpinner, listOf(TcpClient.DisplayInfo(1, 0, 0, 0, 0)))
@@ -223,14 +223,6 @@ class MainActivity : AppCompatActivity() {
 
         setConnected(false)
         applyRealtimeButtonStyle(isRunning = false)
-
-        connectButton.setOnClickListener {
-            val host = hostInput.text.toString().trim()
-            val port = portInput.text.toString().trim().toIntOrNull() ?: 5001
-            persistConnectionInputs(host, port.toString())
-
-            connectToServer(host, port, autoReconnect = false)
-        }
 
         scanQRButton.setOnClickListener {
             qrScanLauncher.launch(
@@ -244,9 +236,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         modelSettingsButton.setOnClickListener {
-            val host = hostInput.text.toString().trim()
-            val port = portInput.text.toString().trim().toIntOrNull() ?: 5001
-            persistConnectionInputs(host, port.toString())
+            val host = currentHost()
+            val port = currentPort()
+            if (host.isBlank()) {
+                Toast.makeText(this, "请先扫码连接电脑", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
 
             startActivity(Intent(this, ModelSettingsActivity::class.java).apply {
                 putExtra("host", host)
@@ -256,13 +251,12 @@ class MainActivity : AppCompatActivity() {
 
         captureButton.setOnClickListener {
             if (!isConnected) {
-                Toast.makeText(this, "请先点击连接", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "请先扫码连接", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
-            val host = hostInput.text.toString().trim()
-            val port = portInput.text.toString().trim().toIntOrNull() ?: 5001
-            persistConnectionInputs(host, port.toString())
+            val host = currentHost()
+            val port = currentPort()
 
             // Save current transform and crop so next screenshot reuses the latest adjustment.
             persistEditorState()
@@ -303,13 +297,12 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             if (!isConnected) {
-                Toast.makeText(this, "请先点击连接", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "请先扫码连接", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
-            val host = hostInput.text.toString().trim()
-            val port = portInput.text.toString().trim().toIntOrNull() ?: 5001
-            persistConnectionInputs(host, port.toString())
+            val host = currentHost()
+            val port = currentPort()
             startRealtime(host, port, realtimeButton, captureButton, statusText)
         }
 
@@ -324,8 +317,8 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            val host = hostInput.text.toString().trim()
-            val port = portInput.text.toString().trim().toIntOrNull() ?: 5001
+            val host = currentHost()
+            val port = currentPort()
             copyAnalysisToPcButton.isEnabled = false
 
             lifecycleScope.launch {
@@ -375,8 +368,8 @@ class MainActivity : AppCompatActivity() {
             }
             val analysisBitmap = prepareBitmapForAnalysis(cropped)
 
-            val host = hostInput.text.toString().trim()
-            val port = portInput.text.toString().trim().toIntOrNull() ?: 5001
+            val host = currentHost()
+            val port = currentPort()
             val analysisMode = currentAnalysisMode()
             val targetLanguage = currentTargetLanguage()
             persistAnalysisSelection(analysisMode, targetLanguage)
@@ -449,10 +442,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        persistConnectionInputs(
-            hostInput.text.toString().trim(),
-            portInput.text.toString().trim(),
-        )
         if (isPreviewFullscreen) {
             exitPreviewFullscreen()
         }
@@ -901,12 +890,69 @@ class MainActivity : AppCompatActivity() {
             val json = JSONObject(qrContent)
             val host = json.getString("ip")
             val port = json.getInt("port")
-            hostInput.setText(host)
-            portInput.setText(port.toString())
             persistConnectionInputs(host, port.toString())
+            updateConnectedHostBadge(host, port)
             connectToServer(host, port, autoReconnect = false)
         } catch (e: Exception) {
             Toast.makeText(this, "二维码格式错误: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun currentHost(): String {
+        return connectedHost?.trim().orEmpty().ifEmpty {
+            connPrefs.getString("host", "")?.trim().orEmpty()
+        }
+    }
+
+    private fun currentPort(): Int {
+        return connectedPort.takeIf { it > 0 }
+            ?: (connPrefs.getString("port", "5001")?.trim()?.toIntOrNull() ?: 5001)
+    }
+
+    private fun updateConnectedHostBadge(host: String?, port: Int?) {
+        val hostText = host?.trim().orEmpty().ifEmpty {
+            connPrefs.getString("host", "")?.trim().orEmpty()
+        }
+        val portValue = port ?: (connPrefs.getString("port", "5001")?.trim()?.toIntOrNull() ?: 5001)
+        connectedHostText.text = if (hostText.isBlank()) {
+            "未连接"
+        } else {
+            "$hostText:$portValue"
+        }
+    }
+
+    private fun applyConnectionIndicator(state: Int) {
+        reconnectPulseAnimator?.cancel()
+        reconnectPulseAnimator = null
+        connectionStatusDot.alpha = 1f
+
+        when (state) {
+            CONNECTION_STATE_CONNECTED -> {
+                connectionStatusDot.backgroundTintList =
+                    ColorStateList.valueOf(ContextCompat.getColor(this, android.R.color.holo_green_light))
+            }
+
+            CONNECTION_STATE_RECONNECTING -> {
+                val dimYellow = 0xFFE8C75A.toInt()
+                val brightYellow = 0xFFFFE082.toInt()
+                val evaluator = ArgbEvaluator()
+                reconnectPulseAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+                    duration = 920L
+                    repeatCount = ValueAnimator.INFINITE
+                    repeatMode = ValueAnimator.REVERSE
+                    addUpdateListener { animator ->
+                        val fraction = animator.animatedFraction
+                        val color = evaluator.evaluate(fraction, dimYellow, brightYellow) as Int
+                        connectionStatusDot.backgroundTintList = ColorStateList.valueOf(color)
+                    }
+                    start()
+                }
+            }
+
+            else -> {
+                connectionStatusDot.backgroundTintList =
+                    ColorStateList.valueOf(ContextCompat.getColor(this, android.R.color.holo_red_light))
+            }
         }
     }
 
@@ -931,8 +977,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun connectToServer(host: String, port: Int, autoReconnect: Boolean) {
         statusText.text = if (autoReconnect) "正在恢复连接..." else "正在连接..."
-        connectButton.isEnabled = false
         setConnected(false)
+        connectedHost = host
+        connectedPort = port
+        updateConnectedHostBadge(host, port)
+        applyConnectionIndicator(if (autoReconnect) CONNECTION_STATE_RECONNECTING else CONNECTION_STATE_FAILED)
 
         reconnectJob = lifecycleScope.launch {
             try {
@@ -944,6 +993,7 @@ class MainActivity : AppCompatActivity() {
                 knownDisplays = displays.ifEmpty { listOf(TcpClient.DisplayInfo(1, 0, 0, 0, 0)) }
                 setupDisplaySpinner(displaySpinner, knownDisplays)
                 setConnected(true)
+                applyConnectionIndicator(CONNECTION_STATE_CONNECTED)
                 startClipboardSubscription(host, port)
 
                 // Load a fresh desktop frame immediately after successful connection.
@@ -966,13 +1016,13 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (ex: Exception) {
                 setConnected(false)
+                applyConnectionIndicator(CONNECTION_STATE_FAILED)
                 statusText.text = if (autoReconnect) {
                     "自动恢复连接失败: ${ex.message}"
                 } else {
                     "失败: ${ex.message}"
                 }
             } finally {
-                connectButton.isEnabled = true
                 reconnectJob = null
             }
         }
@@ -989,6 +1039,12 @@ class MainActivity : AppCompatActivity() {
             hideFloatingPreviewCompletely()
             applyCropEditorMode()
             applyRealtimeButtonStyle(isRunning = false)
+            if (reconnectJob?.isActive != true) {
+                applyConnectionIndicator(CONNECTION_STATE_FAILED)
+            }
+        } else {
+            updateConnectedHostBadge(connectedHost, connectedPort)
+            applyConnectionIndicator(CONNECTION_STATE_CONNECTED)
         }
     }
 
@@ -1752,7 +1808,7 @@ class MainActivity : AppCompatActivity() {
             push.text
         }
 
-        val dialog = AlertDialog.Builder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle("检测到电脑端复制文本")
             .setMessage("是否解析以下文本？\n\n$preview")
             .setCancelable(true)
@@ -1768,7 +1824,29 @@ class MainActivity : AppCompatActivity() {
             }
             .show()
 
+        animateStyledDialogShow(dialog)
+
         clipboardDialog = dialog
+    }
+
+    private fun animateStyledDialogShow(dialog: AlertDialog) {
+        dialog.window?.setBackgroundDrawableResource(R.drawable.bg_dialog_surface)
+        dialog.window?.decorView?.let { decor ->
+            decor.alpha = 0f
+            decor.scaleX = 0.95f
+            decor.scaleY = 0.95f
+            decor.animate()
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(180L)
+                .start()
+        }
+        val accent = ContextCompat.getColor(this, R.color.accent_teal)
+        val ink = ContextCompat.getColor(this, R.color.ink_700)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accent)
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(ink)
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(ink)
     }
 
     private fun updateClipboardDialogMessage(push: TcpClient.ClipboardPush) {
@@ -1790,8 +1868,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val host = hostInput.text.toString().trim()
-        val port = portInput.text.toString().trim().toIntOrNull() ?: 5001
+        val host = currentHost()
+        val port = currentPort()
 
         uploadAnalyzeButton.isEnabled = false
         statusText.text = "正在解析剪贴板文本..."
@@ -1860,27 +1938,6 @@ class MainActivity : AppCompatActivity() {
             message.contains("connection") ||
             message.contains("timeout") ||
             message.contains("socket")
-    }
-
-    private fun attachHyphenStripper(input: EditText) {
-        input.addTextChangedListener(object : TextWatcher {
-            private var isUpdating = false
-
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-
-            override fun afterTextChanged(s: Editable?) {
-                if (isUpdating || s == null) return
-                val original = s.toString()
-                if (!original.contains("-")) return
-                val cleaned = original.replace("-", "")
-                isUpdating = true
-                input.setText(cleaned)
-                input.setSelection(cleaned.length)
-                isUpdating = false
-            }
-        })
     }
 
     private fun renderAnalysisMarkdown(markdown: String) {
