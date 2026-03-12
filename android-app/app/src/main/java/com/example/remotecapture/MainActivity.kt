@@ -65,6 +65,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREVIEW_HIDDEN_NONE = 0
         private const val PREVIEW_HIDDEN_LEFT = 1
         private const val PREVIEW_HIDDEN_RIGHT = 2
+        private const val PREVIEW_EDGE_REVEAL_DRAG_DP = 28f
     }
 
     private var latestBitmap: Bitmap? = null
@@ -1046,6 +1047,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupFloatingPreviewEdgeHandle() {
         val touchSlop = ViewConfiguration.get(this).scaledTouchSlop.toFloat()
+        val revealThreshold = max(touchSlop * 2.3f, dpToPx(PREVIEW_EDGE_REVEAL_DRAG_DP).toFloat())
         val handleListener = View.OnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -1059,9 +1061,10 @@ class MainActivity : AppCompatActivity() {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - hiddenHandleStartRawX
                     val dy = event.rawY - hiddenHandleStartRawY
+                    val mostlyHorizontal = kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.25f
                     val draggedOut = when (previewHiddenSide) {
-                        PREVIEW_HIDDEN_LEFT -> dx > touchSlop
-                        PREVIEW_HIDDEN_RIGHT -> dx < -touchSlop
+                        PREVIEW_HIDDEN_LEFT -> dx > revealThreshold && mostlyHorizontal
+                        PREVIEW_HIDDEN_RIGHT -> dx < -revealThreshold && mostlyHorizontal
                         else -> false
                     }
                     if (draggedOut) {
