@@ -14,11 +14,11 @@ if (hasReleaseKeystore) {
 }
 
 android {
-    namespace = "com.PropPro.mobile"
+    namespace = "com.PrepPro.mobile"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.PropPro.mobile"
+        applicationId = "com.PrepPro.mobile"
         minSdk = 24
         targetSdk = 35
         versionCode = 2

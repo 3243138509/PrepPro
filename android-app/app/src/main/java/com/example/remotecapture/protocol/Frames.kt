@@ -1,4 +1,4 @@
-package com.PropPro.mobile.protocol
+package com.PrepPro.mobile.protocol
 
 import org.json.JSONObject
 import java.io.DataInputStream

@@ -36,7 +36,7 @@
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/buttonModelSettings"
-                    style="@style/Widget.PropPro.Button.Secondary"
+                    style="@style/Widget.PrepPro.Button.Secondary"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
@@ -44,7 +44,7 @@
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/buttonScanQR"
-                    style="@style/Widget.PropPro.Button.Secondary"
+                    style="@style/Widget.PrepPro.Button.Secondary"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
@@ -116,7 +116,7 @@
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/buttonConnect"
-                        style="@style/Widget.PropPro.Button.Primary"
+                        style="@style/Widget.PrepPro.Button.Primary"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -124,7 +124,7 @@
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/buttonCapture"
-                        style="@style/Widget.PropPro.Button.Primary"
+                        style="@style/Widget.PrepPro.Button.Primary"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
@@ -140,7 +140,7 @@
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/buttonCropSave"
-                        style="@style/Widget.PropPro.Button.Secondary"
+                        style="@style/Widget.PrepPro.Button.Secondary"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_weight="0"
@@ -149,7 +149,7 @@
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/buttonRealtime"
-                    style="@style/Widget.PropPro.Button.Primary"
+                    style="@style/Widget.PrepPro.Button.Primary"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"

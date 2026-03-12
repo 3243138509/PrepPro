@@ -68,7 +68,7 @@
                 android:layout_height="match_parent"
                 android:padding="6dp">
 
-                <com.PropPro.mobile.widget.CropEditorView
+                <com.PrepPro.mobile.widget.CropEditorView
                     android:id="@+id/imageResult"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
@@ -127,7 +127,7 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/buttonUploadAnalyze"
-            style="@style/Widget.PropPro.Button.Secondary"
+            style="@style/Widget.PrepPro.Button.Secondary"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_margin="10dp"

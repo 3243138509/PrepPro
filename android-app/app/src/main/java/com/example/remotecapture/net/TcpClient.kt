@@ -1,9 +1,9 @@
-package com.PropPro.mobile.net
+package com.PrepPro.mobile.net
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
-import com.PropPro.mobile.protocol.Frames
+import com.PrepPro.mobile.protocol.Frames
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream

@@ -14,7 +14,7 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
         android:supportsRtl="true"
-        android:theme="@style/Theme.PropPro">
+        android:theme="@style/Theme.PrepPro">
         <activity
             android:name=".ModelSettingsActivity"
             android:exported="false"

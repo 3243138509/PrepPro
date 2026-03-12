@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.PropPro" parent="Theme.MaterialComponents.Light.NoActionBar">
+    <style name="Theme.PrepPro" parent="Theme.MaterialComponents.Light.NoActionBar">
         <item name="colorPrimary">@color/brand_cyan</item>
         <item name="colorPrimaryVariant">@color/brand_cyan_dark</item>
         <item name="colorSecondary">@color/accent_teal</item>
@@ -8,7 +8,7 @@
         <item name="android:windowBackground">@drawable/bg_app_gradient</item>
     </style>
 
-    <style name="Widget.PropPro.Button.Primary" parent="Widget.MaterialComponents.Button">
+    <style name="Widget.PrepPro.Button.Primary" parent="Widget.MaterialComponents.Button">
         <item name="android:textAllCaps">false</item>
         <item name="cornerRadius">14dp</item>
         <item name="backgroundTint">@color/brand_cyan</item>
@@ -17,7 +17,7 @@
         <item name="android:paddingBottom">10dp</item>
     </style>
 
-    <style name="Widget.PropPro.Button.Secondary" parent="Widget.MaterialComponents.Button.OutlinedButton">
+    <style name="Widget.PrepPro.Button.Secondary" parent="Widget.MaterialComponents.Button.OutlinedButton">
         <item name="android:textAllCaps">false</item>
         <item name="cornerRadius">14dp</item>
         <item name="strokeColor">@color/accent_teal</item>

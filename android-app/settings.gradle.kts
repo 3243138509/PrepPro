@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "PropPro"
+rootProject.name = "PrepPro"
 include(":app")

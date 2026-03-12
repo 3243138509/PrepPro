@@ -1,4 +1,4 @@
-package com.PropPro.mobile.widget
+package com.PrepPro.mobile.widget
 
 import android.content.Context
 import android.graphics.Bitmap
