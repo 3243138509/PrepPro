@@ -130,6 +130,7 @@ class MainActivity : AppCompatActivity() {
     private var hiddenHandleStartRawY = 0f
     private var hiddenHandleStartY = 0f
     private var isDraggingHiddenHandle = false
+    private var isPreviewTransitioning = false
     private var isAnimatingTargetLanguageLayout = false
     private val previewAspectRatio = 2560f / 1600f
     private val previewDefaultWidthDp = 200f
@@ -1191,14 +1192,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun restoreFloatingPreviewFromEdge(animated: Boolean = true) {
-        if (previewHiddenSide == PREVIEW_HIDDEN_NONE) {
+        if (previewHiddenSide == PREVIEW_HIDDEN_NONE || isPreviewTransitioning) {
             return
         }
 
         val parentW = mainContentContainer.width.toFloat()
         val parentH = mainContentContainer.height.toFloat()
-        val cardW = floatingPreviewCard.width.toFloat()
-        val cardH = floatingPreviewCard.height.toFloat()
+        val restoreW = clampPreviewWidth(
+            if (floatingPreviewCard.width > 0) floatingPreviewCard.width
+            else if (previewNormalWidth > 0) previewNormalWidth
+            else defaultPreviewWidthPx(),
+        )
+        val restoreH = if (floatingPreviewCard.height > 0) floatingPreviewCard.height
+        else if (previewNormalHeight > 0) previewNormalHeight
+        else aspectHeightForWidth(restoreW)
+        resizeFloatingPreview(restoreW, restoreH)
+        val cardW = restoreW.toFloat()
+        val cardH = restoreH.toFloat()
         if (parentW <= 0f || parentH <= 0f || cardW <= 0f || cardH <= 0f) {
             return
         }
@@ -1359,12 +1369,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun animateFloatingPreviewFromEdge(side: Int, centeredY: Float, animated: Boolean) {
         val parentW = mainContentContainer.width.toFloat()
-        val maxX = (parentW - floatingPreviewCard.width).coerceAtLeast(0f)
+        val cardW = if (floatingPreviewCard.width > 0) floatingPreviewCard.width.toFloat()
+        else clampPreviewWidth(if (previewNormalWidth > 0) previewNormalWidth else defaultPreviewWidthPx()).toFloat()
+        val maxX = (parentW - cardW).coerceAtLeast(0f)
         val restoreX = if (side == PREVIEW_HIDDEN_LEFT) 0f else maxX
         val startX = if (side == PREVIEW_HIDDEN_LEFT) {
-            -floatingPreviewCard.width * 0.35f
+            -cardW * 0.35f
         } else {
-            maxX + floatingPreviewCard.width * 0.35f
+            maxX + cardW * 0.35f
         }
 
         floatingPreviewCard.animate().cancel()
@@ -1408,7 +1420,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun enterPreviewFullscreen() {
-        if (isPreviewFullscreen || floatingPreviewCard.visibility != View.VISIBLE || latestBitmap == null) {
+        if (isPreviewFullscreen || isPreviewTransitioning || floatingPreviewCard.visibility != View.VISIBLE || latestBitmap == null) {
             return
         }
 
@@ -1416,6 +1428,19 @@ class MainActivity : AppCompatActivity() {
         previewNormalY = floatingPreviewCard.y
         previewNormalWidth = floatingPreviewCard.width
         previewNormalHeight = floatingPreviewCard.height
+
+        isPreviewTransitioning = true
+        animatePreviewCardForFullscreenEnter {
+            showFullscreenDialogAnimated()
+        }
+    }
+
+    private fun showFullscreenDialogAnimated() {
+        val bitmap = latestBitmap
+        if (bitmap == null) {
+            isPreviewTransitioning = false
+            return
+        }
 
         val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
         val root = FrameLayout(this).apply {
@@ -1431,7 +1456,7 @@ class MainActivity : AppCompatActivity() {
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
             )
-            setBitmap(requireNotNull(latestBitmap))
+            setBitmap(bitmap)
             rememberedEditorState?.let { applyEditorState(it) }
             setCropEditingEnabled(true)
         }
@@ -1464,12 +1489,29 @@ class MainActivity : AppCompatActivity() {
         isPreviewFullscreen = true
         applyCropEditorMode()
         dialog.show()
+        dialog.window?.decorView?.let { decor ->
+            decor.alpha = 0f
+            decor.scaleX = 1.03f
+            decor.scaleY = 1.03f
+            decor.animate()
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(200L)
+                .withEndAction {
+                    isPreviewTransitioning = false
+                }
+                .start()
+        } ?: run {
+            isPreviewTransitioning = false
+        }
     }
 
     private fun exitPreviewFullscreen() {
-        if (!isPreviewFullscreen) {
+        if (!isPreviewFullscreen || isPreviewTransitioning) {
             return
         }
+        isPreviewTransitioning = true
 
         val exportedState = fullscreenEditorView?.exportEditorState()
         if (exportedState != null) {
@@ -1493,7 +1535,40 @@ class MainActivity : AppCompatActivity() {
         applyCropEditorMode()
         exportedState?.let { cropEditorView.applyEditorState(it) }
         clampFloatingPreviewPosition()
+        animatePreviewCardForFullscreenExit()
         persistFloatingPreviewPosition()
+    }
+
+    private fun animatePreviewCardForFullscreenEnter(onEnd: () -> Unit) {
+        floatingPreviewCard.animate().cancel()
+        floatingPreviewCard.animate()
+            .alpha(0f)
+            .scaleX(1.06f)
+            .scaleY(1.06f)
+            .setDuration(180L)
+            .withEndAction {
+                floatingPreviewCard.alpha = 1f
+                floatingPreviewCard.scaleX = 1f
+                floatingPreviewCard.scaleY = 1f
+                onEnd()
+            }
+            .start()
+    }
+
+    private fun animatePreviewCardForFullscreenExit() {
+        floatingPreviewCard.animate().cancel()
+        floatingPreviewCard.alpha = 0f
+        floatingPreviewCard.scaleX = 1.08f
+        floatingPreviewCard.scaleY = 1.08f
+        floatingPreviewCard.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(220L)
+            .withEndAction {
+                isPreviewTransitioning = false
+            }
+            .start()
     }
 
     private fun applyCropEditorMode() {
