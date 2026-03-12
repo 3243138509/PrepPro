@@ -165,12 +165,17 @@ class TcpClient(
         }
     }
 
-    fun analyzeImage(bitmap: Bitmap, prompt: String): AnalyzeResult {
+    fun analyzeImage(
+        bitmap: Bitmap,
+        prompt: String,
+        analysisMode: String = "qa",
+        targetLanguage: String? = null,
+    ): AnalyzeResult {
         val imageBase64 = encodeBitmapToBase64(bitmap)
 
         repeat(2) { attempt ->
             try {
-                return analyzeImageOnce(imageBase64, prompt)
+                return analyzeImageOnce(imageBase64, prompt, analysisMode, targetLanguage)
             } catch (ex: SocketTimeoutException) {
                 if (attempt == 1) {
                     throw IllegalStateException(
@@ -191,7 +196,12 @@ class TcpClient(
         return Base64.encodeToString(bytesOut.toByteArray(), Base64.NO_WRAP)
     }
 
-    private fun analyzeImageOnce(imageBase64: String, prompt: String): AnalyzeResult {
+    private fun analyzeImageOnce(
+        imageBase64: String,
+        prompt: String,
+        analysisMode: String,
+        targetLanguage: String?,
+    ): AnalyzeResult {
         Socket().use { socket ->
             socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
             socket.soTimeout = ANALYZE_READ_TIMEOUT_MS
@@ -215,6 +225,10 @@ class TcpClient(
                 put("requestId", requestId)
                 put("imageBase64", imageBase64)
                 put("prompt", prompt)
+                put("analysisMode", analysisMode)
+                if (!targetLanguage.isNullOrBlank()) {
+                    put("targetLanguage", targetLanguage)
+                }
             })
 
             val response = Frames.readJson(input)
@@ -239,10 +253,15 @@ class TcpClient(
         }
     }
 
-    fun analyzeText(text: String, prompt: String): AnalyzeResult {
+    fun analyzeText(
+        text: String,
+        prompt: String,
+        analysisMode: String = "qa",
+        targetLanguage: String? = null,
+    ): AnalyzeResult {
         repeat(2) { attempt ->
             try {
-                return analyzeTextOnce(text, prompt)
+                return analyzeTextOnce(text, prompt, analysisMode, targetLanguage)
             } catch (ex: SocketTimeoutException) {
                 if (attempt == 1) {
                     throw IllegalStateException(
@@ -256,7 +275,12 @@ class TcpClient(
         throw IllegalStateException("analyze text request failed")
     }
 
-    private fun analyzeTextOnce(text: String, prompt: String): AnalyzeResult {
+    private fun analyzeTextOnce(
+        text: String,
+        prompt: String,
+        analysisMode: String,
+        targetLanguage: String?,
+    ): AnalyzeResult {
         Socket().use { socket ->
             socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
             socket.soTimeout = ANALYZE_READ_TIMEOUT_MS
@@ -280,6 +304,10 @@ class TcpClient(
                 put("requestId", requestId)
                 put("text", text)
                 put("prompt", prompt)
+                put("analysisMode", analysisMode)
+                if (!targetLanguage.isNullOrBlank()) {
+                    put("targetLanguage", targetLanguage)
+                }
             })
 
             val response = Frames.readJson(input)

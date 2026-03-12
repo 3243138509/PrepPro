@@ -12,6 +12,8 @@
 ### 新增能力
 
 - 文本解析：ANALYZE_TEXT
+- 代码模式：ANALYZE_IMAGE / ANALYZE_TEXT 支持 analysisMode=code
+- 目标语言：ANALYZE_IMAGE / ANALYZE_TEXT 支持 targetLanguage
 - 剪贴板写入：SET_CLIPBOARD_TEXT -> CLIPBOARD_SET_OK
 - 模型配置管理：GET_MODEL_SETTINGS / ADD_MODEL_SETTING / SET_ACTIVE_MODEL / DELETE_MODEL_SETTING
 - 模型检测：DETECT_MODELS -> MODEL_NAMES
@@ -62,12 +64,15 @@
 ### 当前
 
 - 新增 ANALYZE_TEXT。
+- ANALYZE_IMAGE / ANALYZE_TEXT 新增 `analysisMode` 与 `targetLanguage` 字段。
+- 当 `analysisMode=code` 时，服务端会改用编程题代码生成提示词，而不是问答提示词。
 - ANALYZE_IMAGE 在 OCR 失败/为空时会出现 ERROR_OCR 或 ERROR_OCR_EMPTY（取决于配置）。
 - ANALYZE_RESULT 增加 modelNotice 字段（可为空）。
 
 ### 客户端建议
 
 - 解析结果结构按 text + ocrText + modelNotice 读取，modelNotice 允许为空。
+- 如需做编程题，发送 `analysisMode=code`，并显式附带 `targetLanguage`。
 
 ## 3) 剪贴板能力
 

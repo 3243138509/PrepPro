@@ -54,6 +54,11 @@ import kotlin.math.min
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        private const val ANALYSIS_MODE_QA = "qa"
+        private const val ANALYSIS_MODE_CODE = "code"
+    }
+
     private var latestBitmap: Bitmap? = null
     private lateinit var cropEditorView: CropEditorView
     private lateinit var scanQRButton: MaterialButton
@@ -68,6 +73,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var portInput: EditText
     private lateinit var statusText: TextView
     private lateinit var displaySpinner: Spinner
+    private lateinit var analysisModeSpinner: Spinner
+    private lateinit var targetLanguageSpinner: Spinner
+    private lateinit var targetLanguageLayout: View
     private lateinit var connectButton: Button
     private lateinit var captureButton: Button
     private lateinit var uploadAnalyzeButton: Button
@@ -79,6 +87,7 @@ class MainActivity : AppCompatActivity() {
     private val prefs by lazy { getSharedPreferences("crop_prefs", MODE_PRIVATE) }
     private val connPrefs by lazy { getSharedPreferences("conn_prefs", MODE_PRIVATE) }
     private val floatingPrefs by lazy { getSharedPreferences("floating_preview_prefs", MODE_PRIVATE) }
+    private val analysisPrefs by lazy { getSharedPreferences("analysis_prefs", MODE_PRIVATE) }
 
     private var rememberedEditorState: CropEditorView.EditorState? = null
     private var isConnected = false
@@ -156,6 +165,9 @@ class MainActivity : AppCompatActivity() {
         parseStateText = captureRoot.findViewById(R.id.textParseState)
         cropEditorView = findViewById(R.id.imageResult)
         displaySpinner = captureRoot.findViewById(R.id.spinnerDisplay)
+        analysisModeSpinner = captureRoot.findViewById(R.id.spinnerAnalysisMode)
+        targetLanguageSpinner = captureRoot.findViewById(R.id.spinnerTargetLanguage)
+        targetLanguageLayout = captureRoot.findViewById(R.id.layoutTargetLanguage)
         connectButton = captureRoot.findViewById(R.id.buttonConnect)
         captureButton = captureRoot.findViewById(R.id.buttonCapture)
         val cropSaveButton = captureRoot.findViewById<Button>(R.id.buttonCropSave)
@@ -182,6 +194,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(android.R.id.content).requestFocus()
         rememberedEditorState = readEditorStateFromPrefs()
         setupDisplaySpinner(displaySpinner, listOf(TcpClient.DisplayInfo(1, 0, 0, 0, 0)))
+        setupAnalysisSelectors()
 
         setConnected(false)
         applyRealtimeButtonStyle(isRunning = false)
@@ -340,6 +353,9 @@ class MainActivity : AppCompatActivity() {
 
             val host = hostInput.text.toString().trim()
             val port = portInput.text.toString().trim().toIntOrNull() ?: 5001
+            val analysisMode = currentAnalysisMode()
+            val targetLanguage = currentTargetLanguage()
+            persistAnalysisSelection(analysisMode, targetLanguage)
 
             uploadAnalyzeButton.isEnabled = false
             statusText.text = "上传中，正在解析..."
@@ -351,7 +367,9 @@ class MainActivity : AppCompatActivity() {
                     val result = withContext(Dispatchers.IO) {
                         TcpClient(host, port).analyzeImage(
                             analysisBitmap,
-                            "请用简洁中文描述这张图里的主要内容，并列出关键元素。",
+                            buildAnalysisPromptHint(analysisMode),
+                            analysisMode = analysisMode,
+                            targetLanguage = targetLanguage,
                         )
                     }
                     val ocrBlock = if (result.ocrText.isBlank()) {
@@ -376,6 +394,8 @@ class MainActivity : AppCompatActivity() {
                     latestAnalysisResultText = result.text
                     statusText.text = if (result.modelNotice.isNotBlank()) {
                         "解析完成，${result.modelNotice}"
+                    } else if (analysisMode == ANALYSIS_MODE_CODE) {
+                        "代码解析完成${targetLanguage?.let { "，$it" } ?: ""}"
                     } else {
                         "解析完成"
                     }
@@ -454,6 +474,91 @@ class MainActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {
                 selectedDisplayId = displays.firstOrNull()?.id ?: 1
             }
+        }
+    }
+
+    private fun setupAnalysisSelectors() {
+        val modes = listOf("问答模式", "代码模式")
+        val languages = listOf(
+            "Python",
+            "Java",
+            "C++",
+            "C",
+            "JavaScript",
+            "TypeScript",
+            "Go",
+            "Rust",
+            "Kotlin",
+            "Swift",
+            "C#",
+            "PHP",
+            "Ruby",
+        )
+
+        analysisModeSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modes).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        targetLanguageSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, languages).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+
+        val savedMode = analysisPrefs.getString("analysisMode", ANALYSIS_MODE_QA).orEmpty()
+        val savedLanguage = analysisPrefs.getString("targetLanguage", "Python").orEmpty()
+        analysisModeSpinner.setSelection(if (savedMode == ANALYSIS_MODE_CODE) 1 else 0)
+        val languageIndex = languages.indexOfFirst { it.equals(savedLanguage, ignoreCase = true) }
+        targetLanguageSpinner.setSelection(if (languageIndex >= 0) languageIndex else 0)
+        updateTargetLanguageVisibility(savedMode)
+
+        analysisModeSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val mode = if (position == 1) ANALYSIS_MODE_CODE else ANALYSIS_MODE_QA
+                val language = currentTargetLanguage()
+                updateTargetLanguageVisibility(mode)
+                persistAnalysisSelection(mode, language)
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {
+                updateTargetLanguageVisibility(ANALYSIS_MODE_QA)
+            }
+        }
+
+        targetLanguageSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                persistAnalysisSelection(currentAnalysisMode(), currentTargetLanguage())
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {
+            }
+        }
+    }
+
+    private fun currentAnalysisMode(): String {
+        return if (analysisModeSpinner.selectedItemPosition == 1) ANALYSIS_MODE_CODE else ANALYSIS_MODE_QA
+    }
+
+    private fun currentTargetLanguage(): String? {
+        if (currentAnalysisMode() != ANALYSIS_MODE_CODE) {
+            return null
+        }
+        return targetLanguageSpinner.selectedItem?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    private fun updateTargetLanguageVisibility(mode: String) {
+        targetLanguageLayout.visibility = if (mode == ANALYSIS_MODE_CODE) View.VISIBLE else View.GONE
+    }
+
+    private fun persistAnalysisSelection(mode: String, targetLanguage: String?) {
+        analysisPrefs.edit()
+            .putString("analysisMode", mode)
+            .putString("targetLanguage", targetLanguage ?: analysisPrefs.getString("targetLanguage", "Python"))
+            .apply()
+    }
+
+    private fun buildAnalysisPromptHint(mode: String): String {
+        return if (mode == ANALYSIS_MODE_CODE) {
+            "请把最终代码放在 Markdown 代码块中输出。"
+        } else {
+            ""
         }
     }
 

@@ -162,12 +162,9 @@ def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
             if msg_type == "ANALYZE_IMAGE":
                 request_id = msg.get("requestId")
                 image_base64 = str(msg.get("imageBase64", ""))
-                prompt = str(
-                    msg.get(
-                        "prompt",
-                        "你现在是一个解题专家，你的任务是根据图片中的内容写出答案。概括性的描述图片内容，提取关键信息，分析并给出答案。请先给出答案的结论，然后再概括性说出解题思路",
-                    )
-                )
+                prompt = str(msg.get("prompt", ""))
+                analysis_mode = str(msg.get("analysisMode", ""))
+                target_language = str(msg.get("targetLanguage", ""))
                 if not image_base64:
                     send_frame(
                         conn,
@@ -214,11 +211,18 @@ def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
                     if config.ANALYZE_USE_OCR_TEXT:
                         if not ocr_text:
                             raise RuntimeError("ocr text is empty; cannot run text-only analysis")
-                        result = analyze_text_content(prompt, ocr_text)
+                        result = analyze_text_content(
+                            prompt,
+                            ocr_text,
+                            mode=analysis_mode,
+                            target_language=target_language,
+                        )
                     else:
                         result = analyze_image_base64(
                             image_base64,
                             build_prompt_with_ocr(prompt, ocr_text),
+                            mode=analysis_mode,
+                            target_language=target_language,
                         )
                     send_frame(
                         conn,
@@ -246,12 +250,9 @@ def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
             if msg_type == "ANALYZE_TEXT":
                 request_id = msg.get("requestId")
                 text_content = str(msg.get("text", ""))
-                prompt = str(
-                    msg.get(
-                        "prompt",
-                        "你现在是一个解题专家，你的任务是根据文字中的内容写出答案。概括性的描述图片内容，提取关键信息，分析并给出答案。请先给出答案的结论，然后再概括性说出解题思路",
-                    )
-                )
+                prompt = str(msg.get("prompt", ""))
+                analysis_mode = str(msg.get("analysisMode", ""))
+                target_language = str(msg.get("targetLanguage", ""))
                 if not text_content:
                     send_frame(
                         conn,
@@ -265,7 +266,12 @@ def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
                     continue
 
                 try:
-                    result = analyze_text_content(prompt, text_content)
+                    result = analyze_text_content(
+                        prompt,
+                        text_content,
+                        mode=analysis_mode,
+                        target_language=target_language,
+                    )
                     send_frame(
                         conn,
                         {
@@ -608,9 +614,6 @@ if __name__ == "__main__":
     ttk.Label(_frame, text="PrepPro 电脑端", style="Title.TLabel").grid(
         row=0, column=0, columnspan=2, sticky="w"
     )
-    ttk.Label(_frame, text="连接成功后保持窗口尺寸稳定，支持托盘管理", style="Hint.TLabel").grid(
-        row=1, column=0, columnspan=2, pady=(4, 16), sticky="w"
-    )
 
     def _add_info_row(row: int, label: str, value: str, fg: str = "") -> None:
         ttk.Label(_frame, text=label, style="Key.TLabel").grid(
@@ -633,9 +636,6 @@ if __name__ == "__main__":
     )
     ttk.Button(_frame, text="隐藏到托盘", style="Tray.TButton", command=lambda: root.withdraw()).grid(
         row=7, column=0, sticky="w"
-    )
-    ttk.Label(_frame, text="最小化会保留在任务栏；关闭会弹出确认框", style="Hint.TLabel").grid(
-        row=7, column=1, sticky="e"
     )
 
     _frame.columnconfigure(0, weight=1)

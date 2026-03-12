@@ -159,9 +159,18 @@
   "type": "ANALYZE_IMAGE",
   "requestId": "uuid-string",
   "imageBase64": "...",
-  "prompt": "可选，自定义提示词"
+  "prompt": "可选，额外提示词",
+  "analysisMode": "可选，qa 或 code",
+  "targetLanguage": "可选，代码模式下的目标语言，如 Python / Java / C++"
 }
 ```
+
+字段说明：
+
+- `analysisMode` 默认为 `qa`
+- `analysisMode=code` 时，服务端会切换到编程题代码生成提示词
+- `targetLanguage` 仅在 `analysisMode=code` 时生效；为空时默认按 `Python` 处理
+- `prompt` 不再承担完整主提示词职责，只作为附加要求拼接到服务端内置提示词后面
 
 成功返回：
 
@@ -191,9 +200,13 @@
   "type": "ANALYZE_TEXT",
   "requestId": "uuid-string",
   "text": "需要解析的文本",
-  "prompt": "可选，自定义提示词"
+  "prompt": "可选，额外提示词",
+  "analysisMode": "可选，qa 或 code",
+  "targetLanguage": "可选，代码模式下的目标语言，如 Python / Java / C++"
 }
 ```
+
+当 `analysisMode=code` 时，服务端会先识别题目中的输入输出、约束与边界，再输出对应语言的可提交代码。
 
 成功返回：
 
