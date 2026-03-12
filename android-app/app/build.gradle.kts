@@ -22,7 +22,7 @@ android {
         minSdk = 24
         targetSdk = 35
         versionCode = 2
-        versionName = "1.0.1"
+        versionName = "1.0.2"
     }
 
     signingConfigs {
@@ -65,4 +65,5 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.2.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("io.noties.markwon:core:4.6.2")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }

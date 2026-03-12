@@ -81,6 +81,7 @@ final class AppViewModel: ObservableObject {
 
 struct ContentView: View {
     @StateObject private var vm = AppViewModel()
+    @State private var showingQRScanner = false
 
     var body: some View {
         NavigationStack {
@@ -88,6 +89,12 @@ struct ContentView: View {
                 VStack(spacing: 16) {
                     GroupBox("连接配置") {
                         VStack(spacing: 12) {
+                            Button("扫描二维码连接") {
+                                showingQRScanner = true
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .frame(maxWidth: .infinity)
+
                             TextField("Windows IP", text: $vm.host)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
@@ -146,6 +153,17 @@ struct ContentView: View {
                 .padding()
             }
             .navigationTitle("PrepPro iOS")
+        }
+        .sheet(isPresented: $showingQRScanner) {
+            QRScannerView { scanned in
+                guard let data = scanned.data(using: .utf8),
+                      let info = try? JSONDecoder().decode(QRConnectInfo.self, from: data)
+                else { return }
+                vm.host = info.ip
+                vm.portText = String(info.port)
+                if let pw = info.password { vm.password = pw }
+                vm.connect()
+            }
         }
     }
 }

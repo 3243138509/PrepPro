@@ -27,3 +27,10 @@ struct ServerMessage: Decodable {
     let height: Int?
     let imageBase64: String?
 }
+
+/// Payload encoded in the Windows-server QR code.
+struct QRConnectInfo: Decodable {
+    let ip: String
+    let port: Int
+    let password: String?
+}

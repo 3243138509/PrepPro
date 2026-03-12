@@ -42,6 +42,14 @@
                     android:layout_marginTop="8dp"
                     android:text="模型设置" />
 
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/buttonScanQR"
+                    style="@style/Widget.PropPro.Button.Secondary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="扫描二维码连接" />
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

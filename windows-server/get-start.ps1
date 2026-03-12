@@ -27,9 +27,17 @@ if ($resolvedScriptDir -match "[\u4e00-\u9fff]") {
 }
 
 $workspaceDir = Split-Path -Parent $scriptDir
-$hasProjectRoot = $workspaceDir -match "double_end_connect"
-$venvBaseDir = if ($hasProjectRoot) { $workspaceDir } else { $scriptDir }
-$venvDir = Join-Path $venvBaseDir ".venv"
+$rootVenvDir = Join-Path $workspaceDir ".venv"
+$localVenvDir = Join-Path $scriptDir ".venv"
+$venvDir = if (Test-Path (Join-Path $rootVenvDir "Scripts\python.exe")) {
+    $rootVenvDir
+}
+elseif (Test-Path (Join-Path $localVenvDir "Scripts\python.exe")) {
+    $localVenvDir
+}
+else {
+    $rootVenvDir
+}
 $venvPython = Join-Path $venvDir "Scripts\python.exe"
 $venvPythonW = Join-Path $venvDir "Scripts\pythonw.exe"
 $bundledVenvMarker = Join-Path $venvDir ".preppro_bundled"
@@ -37,8 +45,11 @@ $requirements = Join-Path $scriptDir "requirements.txt"
 $mainFile = Join-Path $scriptDir "main.py"
 $pythonInstallerUrl = "https://www.python.org/ftp/python/3.10.10/python-3.10.10-amd64.exe"
 
-if (-not $hasProjectRoot) {
-    Write-Host "[PropPro] double_end_connect not found in parent path; using windows-server local venv."
+if ($venvDir -eq $rootVenvDir) {
+    Write-Host "[PropPro] Using workspace root venv: $venvDir"
+}
+else {
+    Write-Host "[PropPro] Using windows-server local venv: $venvDir"
 }
 
 function Get-UserPythonInstallCandidates {
@@ -155,6 +166,23 @@ function Resolve-PythonCommand {
     throw "Python installation completed, but python command is still unavailable."
 }
 
+function Test-PythonImport {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PythonExe,
+        [Parameter(Mandatory = $true)]
+        [string]$ModuleName
+    )
+
+    try {
+        & $PythonExe -c "import $ModuleName" 2>$null
+        return $LASTEXITCODE -eq 0
+    }
+    catch {
+        return $false
+    }
+}
+
 if (-not (Test-Path $venvPython)) {
     Write-Host "[1/4] Creating virtual environment..."
     $pythonCmd = Resolve-PythonCommand
@@ -168,9 +196,24 @@ if (-not (Test-Path $venvPython)) {
     throw "Failed to create virtual environment: $venvPython not found."
 }
 
+$dependencyActionHandled = $false
+
 if ((Test-Path $bundledVenvMarker) -and (-not $SkipInstall)) {
-    Write-Host "[PrepPro] Bundled venv detected. Skipping pip install for offline-safe startup."
-    $SkipInstall = $true
+    if (Test-PythonImport -PythonExe $venvPython -ModuleName "qrcode") {
+        Write-Host "[PropPro] Bundled venv detected and qrcode is available. Skipping pip install."
+        $SkipInstall = $true
+        $dependencyActionHandled = $true
+    }
+    else {
+        Write-Host "[PropPro] Bundled venv detected but qrcode is missing. Installing missing dependency..."
+        Write-Host "[2/4] Upgrading pip..."
+        & $venvPython -m pip install --upgrade pip
+
+        Write-Host "[3/4] Installing qrcode[pil]..."
+        & $venvPython -m pip install "qrcode[pil]==8.0"
+        $SkipInstall = $true
+        $dependencyActionHandled = $true
+    }
 }
 
 if (-not $SkipInstall) {
@@ -180,7 +223,7 @@ if (-not $SkipInstall) {
     Write-Host "[3/4] Installing dependencies..."
     & $venvPython -m pip install -r $requirements
 }
-else {
+elseif (-not $dependencyActionHandled) {
     Write-Host "[2/4] Skipping dependency installation."
     Write-Host "[3/4] Skipping dependency installation."
 }

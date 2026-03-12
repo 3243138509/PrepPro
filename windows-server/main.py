@@ -1,6 +1,9 @@
+import ctypes
+import json as _json
 import logging
 import queue as _queue
 import socket
+import sys
 import threading
 import time
 import tkinter as tk
@@ -11,7 +14,7 @@ from tkinter import messagebox, ttk
 from typing import Any
 
 import pystray
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageTk
 
 import config
 from analyzer import analyze_image_base64, analyze_text_content, detect_model_names
@@ -24,6 +27,9 @@ from protocol import recv_frame, send_frame
 _log_dir = Path(__file__).with_name("log")
 _log_dir.mkdir(parents=True, exist_ok=True)
 _log_file = _log_dir / "server.log"
+_WINDOW_WIDTH = 830
+_WINDOW_HEIGHT = 360
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -521,6 +527,37 @@ def _create_tray_icon_image() -> Image.Image:
     return img
 
 
+def _configure_windows_dpi() -> None:
+    if sys.platform != "win32":
+        return
+
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        return
+    except Exception:
+        pass
+
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+def _enforce_window_size(root: tk.Tk) -> None:
+    size = f"{_WINDOW_WIDTH}x{_WINDOW_HEIGHT}"
+    root.geometry(size)
+    root.minsize(_WINDOW_WIDTH, _WINDOW_HEIGHT)
+
+
+def _fit_window_to_content(root: tk.Tk) -> tuple[int, int]:
+    root.update_idletasks()
+    target_width = max(_WINDOW_WIDTH, root.winfo_reqwidth())
+    target_height = max(_WINDOW_HEIGHT, root.winfo_reqheight())
+    root.geometry(f"{target_width}x{target_height}")
+    root.minsize(target_width, target_height)
+    return target_width, target_height
+
+
 if __name__ == "__main__":
     server_thread = threading.Thread(target=start_server, daemon=True)
     server_thread.start()
@@ -532,11 +569,11 @@ if __name__ == "__main__":
     _gui_queue: _queue.Queue = _queue.Queue()
 
     # ── Tkinter info window ──────────────────────────────────────────────────
+    _configure_windows_dpi()
     root = tk.Tk()
     root.title("PrepPro 电脑端")
     root.resizable(False, False)
-    root.geometry("560x360")
-    root.minsize(560, 360)
+    _enforce_window_size(root)
 
     _icon_path = Path(__file__).with_name("image") / "icon.png"
     if _icon_path.exists():
@@ -566,7 +603,7 @@ if __name__ == "__main__":
     _outer.pack(fill=tk.BOTH, expand=True)
 
     _frame = ttk.Frame(_outer, style="Card.TFrame", padding=22)
-    _frame.pack(fill=tk.BOTH, expand=True)
+    _frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
     ttk.Label(_frame, text="PrepPro 电脑端", style="Title.TLabel").grid(
         row=0, column=0, columnspan=2, sticky="w"
@@ -604,6 +641,57 @@ if __name__ == "__main__":
     _frame.columnconfigure(0, weight=1)
     _frame.columnconfigure(1, weight=2)
 
+    # ── QR code panel (独立帧，每5秒刷新) ────────────────────────────────────
+    _primary_ip = ips[0] if ips else None
+    if _primary_ip:
+        try:
+            import qrcode as _qrcode  # type: ignore
+
+            def _make_qr_image() -> ImageTk.PhotoImage:
+                # embed a 5-second rolling token so the QR visually rotates
+                token = int(time.time()) // 5
+                data = _json.dumps({
+                    "ip": _primary_ip,
+                    "port": config.PORT,
+                    "password": config.PASSWORD,
+                    "t": token,
+                })
+                qr = _qrcode.QRCode(
+                    box_size=4,
+                    border=2,
+                    error_correction=_qrcode.constants.ERROR_CORRECT_L,
+                )
+                qr.add_data(data)
+                qr.make(fit=True)
+                img = qr.make_image(fill_color="#0f172a", back_color="#ffffff").convert("RGB")
+                img = img.resize((190, 190), Image.NEAREST)
+                return ImageTk.PhotoImage(img)
+
+            _qr_panel = ttk.Frame(_outer, style="Card.TFrame", padding=12)
+            _qr_panel.pack(side=tk.RIGHT, fill=tk.Y, padx=(12, 0))
+
+            _qr_img_label = tk.Label(_qr_panel, background="#ffffff", bd=0)
+            _qr_img_label.pack()
+            ttk.Label(_qr_panel, text="扫码快速连接", style="Hint.TLabel").pack(pady=(6, 0))
+
+            def _refresh_qr() -> None:
+                if _stop_event.is_set():
+                    return
+                try:
+                    photo = _make_qr_image()
+                    _qr_img_label.config(image=photo)
+                    _qr_img_label._photo = photo  # prevent GC
+                except Exception:
+                    logging.exception("qr refresh failed")
+                root.after(5000, _refresh_qr)
+
+            _refresh_qr()  # initial render
+
+        except ImportError:
+            logging.warning("qrcode package not found; QR panel skipped")
+        except Exception:
+            logging.exception("failed to build QR panel")
+
     _lifecycle_state = {"is_shutting_down": False}
 
     def _shutdown_app() -> None:
@@ -636,6 +724,15 @@ if __name__ == "__main__":
 
     root.after(50, _pump_gui)
 
+    _window_size = {"width": _WINDOW_WIDTH, "height": _WINDOW_HEIGHT}
+
+    def _apply_fitted_window_size() -> None:
+        width, height = _fit_window_to_content(root)
+        _window_size["width"] = width
+        _window_size["height"] = height
+
+    _apply_fitted_window_size()
+
     # ── System tray ──────────────────────────────────────────────────────────
     _tray_state: dict[str, Any] = {"icon": None}
 
@@ -643,6 +740,8 @@ if __name__ == "__main__":
         def _do() -> None:
             root.deiconify()
             root.state("normal")
+            root.geometry(f"{_window_size['width']}x{_window_size['height']}")
+            root.minsize(_window_size["width"], _window_size["height"])
             root.lift()
             root.focus_force()
         _gui_queue.put(_do)

@@ -39,7 +39,10 @@ import com.PropPro.mobile.net.TcpClient
 import com.PropPro.mobile.widget.CropEditorView
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.button.MaterialButton
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import io.noties.markwon.Markwon
+import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -53,6 +56,7 @@ class MainActivity : AppCompatActivity() {
 
     private var latestBitmap: Bitmap? = null
     private lateinit var cropEditorView: CropEditorView
+    private lateinit var scanQRButton: MaterialButton
     private lateinit var parseStateText: TextView
     private lateinit var pageIndicatorText: TextView
     private lateinit var mainPager: ViewPager
@@ -115,6 +119,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+    private val qrScanLauncher = registerForActivityResult(ScanContract()) { result ->
+        val content = result.contents ?: return@registerForActivityResult
+        parseAndConnectFromQR(content)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN)
@@ -151,6 +160,7 @@ class MainActivity : AppCompatActivity() {
         captureButton = captureRoot.findViewById(R.id.buttonCapture)
         val cropSaveButton = captureRoot.findViewById<Button>(R.id.buttonCropSave)
         val modelSettingsButton = captureRoot.findViewById<Button>(R.id.buttonModelSettings)
+        scanQRButton = captureRoot.findViewById(R.id.buttonScanQR)
         uploadAnalyzeButton = findViewById(R.id.buttonUploadAnalyze)
         realtimeButton = captureRoot.findViewById(R.id.buttonRealtime)
         analysisText = analysisRoot.findViewById(R.id.textAnalysis)
@@ -182,6 +192,17 @@ class MainActivity : AppCompatActivity() {
             persistConnectionInputs(host, port.toString())
 
             connectToServer(host, port, autoReconnect = false)
+        }
+
+        scanQRButton.setOnClickListener {
+            qrScanLauncher.launch(
+                ScanOptions().apply {
+                    setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                    setPrompt("对准电脑屏幕上的二维码")
+                    setBeepEnabled(false)
+                    setBarcodeImageEnabled(false)
+                }
+            )
         }
 
         modelSettingsButton.setOnClickListener {
@@ -585,6 +606,20 @@ class MainActivity : AppCompatActivity() {
             cropImageRightPx = if (prefs.contains("cropImageRightPx")) prefs.getFloat("cropImageRightPx", 0f) else null,
             cropImageBottomPx = if (prefs.contains("cropImageBottomPx")) prefs.getFloat("cropImageBottomPx", 0f) else null,
         )
+    }
+
+    private fun parseAndConnectFromQR(qrContent: String) {
+        try {
+            val json = JSONObject(qrContent)
+            val host = json.getString("ip")
+            val port = json.getInt("port")
+            hostInput.setText(host)
+            portInput.setText(port.toString())
+            persistConnectionInputs(host, port.toString())
+            connectToServer(host, port, autoReconnect = false)
+        } catch (e: Exception) {
+            Toast.makeText(this, "二维码格式错误: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun persistConnectionInputs(host: String, port: String) {

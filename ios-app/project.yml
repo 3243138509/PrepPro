@@ -20,6 +20,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.preppro.ios
         INFOPLIST_KEY_CFBundleDisplayName: PrepPro
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: PrepPro needs local network access to connect to your Windows server.
+        INFOPLIST_KEY_NSCameraUsageDescription: PrepPro needs camera access to scan QR codes for connecting to the Windows server.
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait

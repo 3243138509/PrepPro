@@ -1,6 +1,12 @@
 #define MyAppName "PrepPro"
 #define MyAppVersion "1.0.1"
 
+#ifexist "..\..\.venv\Scripts\python.exe"
+	#define BundledVenvSource "..\..\.venv"
+#else
+	#define BundledVenvSource "..\.venv"
+#endif
+
 [Setup]
 AppId={{D6F4B93A-4A1D-4F61-8E43-EA7FC2F0A8AD}
 AppName={#MyAppName}
@@ -32,7 +38,7 @@ Source: "..\*.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\*.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\*.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\.venv\*"; DestDir: "{app}\.venv"; Flags: recursesubdirs ignoreversion createallsubdirs
+Source: "{#BundledVenvSource}\*"; DestDir: "{app}\.venv"; Flags: recursesubdirs ignoreversion createallsubdirs
 Source: "bundled-venv.marker"; DestDir: "{app}\.venv"; DestName: ".preppro_bundled"; Flags: ignoreversion
 Source: "..\image\*"; DestDir: "{app}\image"; Flags: recursesubdirs ignoreversion createallsubdirs
 Source: "..\RapidOCR-json_v0.2.0\*"; DestDir: "{app}\RapidOCR-json_v0.2.0"; Flags: recursesubdirs ignoreversion createallsubdirs
