@@ -1,6 +1,9 @@
 package com.PrepPro.mobile
 
 import android.Manifest
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.content.ContentValues
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -18,11 +21,13 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewConfiguration
+import android.view.Gravity
 import android.view.WindowManager
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -57,6 +62,9 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val ANALYSIS_MODE_QA = "qa"
         private const val ANALYSIS_MODE_CODE = "code"
+        private const val PREVIEW_HIDDEN_NONE = 0
+        private const val PREVIEW_HIDDEN_LEFT = 1
+        private const val PREVIEW_HIDDEN_RIGHT = 2
     }
 
     private var latestBitmap: Bitmap? = null
@@ -66,7 +74,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pageIndicatorText: TextView
     private lateinit var mainPager: ViewPager
     private lateinit var mainContentContainer: View
+    private lateinit var captureScrollView: ScrollView
     private lateinit var floatingPreviewCard: MaterialCardView
+    private lateinit var floatingPreviewEdgeHandle: MaterialCardView
+    private lateinit var floatingPreviewEdgeHandleText: TextView
     private lateinit var fullscreenTopBar: View
     private lateinit var fullscreenBackButton: TextView
     private lateinit var hostInput: EditText
@@ -113,6 +124,13 @@ class MainActivity : AppCompatActivity() {
     private var previewNormalY = 0f
     private var previewNormalWidth = 0
     private var previewNormalHeight = 0
+    private var previewHiddenSide = PREVIEW_HIDDEN_NONE
+    private var previewLastVisibleSide = PREVIEW_HIDDEN_RIGHT
+    private var hiddenHandleStartRawX = 0f
+    private var hiddenHandleStartRawY = 0f
+    private var hiddenHandleStartY = 0f
+    private var isDraggingHiddenHandle = false
+    private var isAnimatingTargetLanguageLayout = false
     private val previewAspectRatio = 2560f / 1600f
     private val previewDefaultWidthDp = 200f
     private val previewMaxWidthDp = 220f
@@ -154,8 +172,11 @@ class MainActivity : AppCompatActivity() {
         val captureRoot = requireNotNull(pageCaptureRoot)
         val analysisRoot = requireNotNull(pageAnalysisRoot)
 
+        captureScrollView = captureRoot.findViewById(R.id.captureScrollView)
         mainContentContainer = findViewById(R.id.mainContentContainer)
         floatingPreviewCard = findViewById(R.id.floatingPreviewCard)
+        floatingPreviewEdgeHandle = findViewById(R.id.floatingPreviewEdgeHandle)
+        floatingPreviewEdgeHandleText = findViewById(R.id.textFloatingPreviewEdgeHandle)
         fullscreenTopBar = findViewById(R.id.fullscreenTopBar)
         fullscreenBackButton = findViewById(R.id.buttonFullscreenBack)
 
@@ -181,6 +202,8 @@ class MainActivity : AppCompatActivity() {
         realtimeDefaultTint = realtimeButton.backgroundTintList
         realtimeDefaultStroke = realtimeButton.strokeColor
         setupFloatingPreviewDrag()
+        setupFloatingPreviewEdgeHandle()
+        setupSelectorAnimations()
         setupFullscreenControls()
         restoreFloatingPreviewPosition()
         cropEditorView.setCropEditingEnabled(false)
@@ -257,8 +280,7 @@ class MainActivity : AppCompatActivity() {
                         editor.setBitmap(bitmap)
                         rememberedEditorState?.let { editor.applyEditorState(it) }
                     }
-                    floatingPreviewCard.visibility = View.VISIBLE
-                    ensureFloatingPreviewVisible()
+                    showFloatingPreviewForContent()
                     statusText.text = "截图成功，已沿用上次缩放和裁剪框"
                 } catch (ex: Exception) {
                     if (isConnectionFatal(ex)) {
@@ -461,14 +483,14 @@ class MainActivity : AppCompatActivity() {
         val labels = displays.map { d ->
             "屏幕 ${d.id} (${d.width}x${d.height}, ${d.left},${d.top})"
         }
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, labels)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        val adapter = createPrettySpinnerAdapter(labels)
         spinner.adapter = adapter
         spinner.setSelection(0)
         selectedDisplayId = displays.firstOrNull()?.id ?: 1
         spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 selectedDisplayId = displays.getOrNull(position)?.id ?: 1
+                playSelectorConfirmAnimation(spinner)
             }
 
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {
@@ -495,12 +517,8 @@ class MainActivity : AppCompatActivity() {
             "Ruby",
         )
 
-        analysisModeSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, modes).apply {
-            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        }
-        targetLanguageSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, languages).apply {
-            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        }
+        analysisModeSpinner.adapter = createPrettySpinnerAdapter(modes)
+        targetLanguageSpinner.adapter = createPrettySpinnerAdapter(languages)
 
         val savedMode = analysisPrefs.getString("analysisMode", ANALYSIS_MODE_QA).orEmpty()
         val savedLanguage = analysisPrefs.getString("targetLanguage", "Python").orEmpty()
@@ -513,17 +531,19 @@ class MainActivity : AppCompatActivity() {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val mode = if (position == 1) ANALYSIS_MODE_CODE else ANALYSIS_MODE_QA
                 val language = currentTargetLanguage()
-                updateTargetLanguageVisibility(mode)
+                playSelectorConfirmAnimation(analysisModeSpinner)
+                updateTargetLanguageVisibility(mode, animated = true)
                 persistAnalysisSelection(mode, language)
             }
 
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {
-                updateTargetLanguageVisibility(ANALYSIS_MODE_QA)
+                updateTargetLanguageVisibility(ANALYSIS_MODE_QA, animated = false)
             }
         }
 
         targetLanguageSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                playSelectorConfirmAnimation(targetLanguageSpinner)
                 persistAnalysisSelection(currentAnalysisMode(), currentTargetLanguage())
             }
 
@@ -543,8 +563,170 @@ class MainActivity : AppCompatActivity() {
         return targetLanguageSpinner.selectedItem?.toString()?.trim()?.takeIf { it.isNotEmpty() }
     }
 
-    private fun updateTargetLanguageVisibility(mode: String) {
-        targetLanguageLayout.visibility = if (mode == ANALYSIS_MODE_CODE) View.VISIBLE else View.GONE
+    private fun updateTargetLanguageVisibility(mode: String, animated: Boolean = true) {
+        val shouldShow = mode == ANALYSIS_MODE_CODE
+        if (shouldShow) {
+            expandTargetLanguageLayout(animated)
+        } else {
+            collapseTargetLanguageLayout(animated)
+        }
+    }
+
+    private fun setupSelectorAnimations() {
+        listOf(displaySpinner, analysisModeSpinner, targetLanguageSpinner).forEach { spinner ->
+            spinner.setOnTouchListener { view, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> animateSelectorPressed(view, pressed = true)
+                    MotionEvent.ACTION_UP,
+                    MotionEvent.ACTION_CANCEL -> animateSelectorPressed(view, pressed = false)
+                }
+                false
+            }
+        }
+    }
+
+    private fun createPrettySpinnerAdapter(items: List<String>): ArrayAdapter<String> {
+        return ArrayAdapter(this, R.layout.item_spinner_selected, items).apply {
+            setDropDownViewResource(R.layout.item_spinner_dropdown)
+        }
+    }
+
+    private fun animateSelectorPressed(view: View, pressed: Boolean) {
+        view.animate()
+            .scaleX(if (pressed) 0.985f else 1f)
+            .scaleY(if (pressed) 0.985f else 1f)
+            .alpha(if (pressed) 0.92f else 1f)
+            .translationY(if (pressed) dpToPx(1f).toFloat() else 0f)
+            .setDuration(if (pressed) 90L else 150L)
+            .start()
+    }
+
+    private fun playSelectorConfirmAnimation(view: View) {
+        view.animate().cancel()
+        view.scaleX = 0.985f
+        view.scaleY = 0.985f
+        view.alpha = 0.96f
+        view.animate()
+            .scaleX(1f)
+            .scaleY(1f)
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(180L)
+            .start()
+    }
+
+    private fun expandTargetLanguageLayout(animated: Boolean) {
+        if (targetLanguageLayout.visibility == View.VISIBLE && !isAnimatingTargetLanguageLayout) {
+            targetLanguageLayout.alpha = 1f
+            targetLanguageLayout.translationY = 0f
+            return
+        }
+
+        targetLanguageLayout.clearFocus()
+        currentFocus?.clearFocus()
+
+        if (!animated) {
+            targetLanguageLayout.visibility = View.VISIBLE
+            targetLanguageLayout.alpha = 1f
+            targetLanguageLayout.translationY = 0f
+            targetLanguageLayout.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            targetLanguageLayout.requestLayout()
+            return
+        }
+
+        val targetHeight = measureTargetLanguageHeight()
+        val layoutParams = targetLanguageLayout.layoutParams
+        isAnimatingTargetLanguageLayout = true
+        targetLanguageLayout.visibility = View.VISIBLE
+        targetLanguageLayout.alpha = 0f
+        targetLanguageLayout.translationY = -dpToPx(10f).toFloat()
+        layoutParams.height = 0
+        targetLanguageLayout.layoutParams = layoutParams
+
+        ValueAnimator.ofInt(0, targetHeight).apply {
+            duration = 220L
+            addUpdateListener { animator ->
+                targetLanguageLayout.layoutParams = targetLanguageLayout.layoutParams.apply {
+                    height = animator.animatedValue as Int
+                }
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    isAnimatingTargetLanguageLayout = false
+                    targetLanguageLayout.layoutParams = targetLanguageLayout.layoutParams.apply {
+                        height = ViewGroup.LayoutParams.WRAP_CONTENT
+                    }
+                }
+            })
+            start()
+        }
+
+        targetLanguageLayout.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(220L)
+            .start()
+    }
+
+    private fun collapseTargetLanguageLayout(animated: Boolean) {
+        if (targetLanguageLayout.visibility != View.VISIBLE || isAnimatingTargetLanguageLayout) {
+            targetLanguageLayout.visibility = View.GONE
+            return
+        }
+
+        targetLanguageSpinner.clearFocus()
+        currentFocus?.clearFocus()
+
+        if (!animated) {
+            targetLanguageLayout.visibility = View.GONE
+            targetLanguageLayout.alpha = 1f
+            targetLanguageLayout.translationY = 0f
+            targetLanguageLayout.layoutParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
+            return
+        }
+
+        val initialHeight = targetLanguageLayout.height.takeIf { it > 0 } ?: measureTargetLanguageHeight()
+        val marginTop = (targetLanguageLayout.layoutParams as? ViewGroup.MarginLayoutParams)?.topMargin ?: 0
+        val layoutParams = targetLanguageLayout.layoutParams
+        isAnimatingTargetLanguageLayout = true
+
+        ValueAnimator.ofInt(initialHeight, 0).apply {
+            duration = 200L
+            addUpdateListener { animator ->
+                targetLanguageLayout.layoutParams = targetLanguageLayout.layoutParams.apply {
+                    height = animator.animatedValue as Int
+                }
+            }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    isAnimatingTargetLanguageLayout = false
+                    targetLanguageLayout.visibility = View.GONE
+                    targetLanguageLayout.alpha = 1f
+                    targetLanguageLayout.translationY = 0f
+                    targetLanguageLayout.layoutParams = layoutParams.apply {
+                        height = ViewGroup.LayoutParams.WRAP_CONTENT
+                    }
+                }
+            })
+            start()
+        }
+
+        targetLanguageLayout.animate()
+            .alpha(0f)
+            .translationY(-dpToPx(10f).toFloat())
+            .setDuration(180L)
+            .start()
+
+        captureScrollView.post {
+            captureScrollView.smoothScrollBy(0, -(initialHeight + marginTop))
+        }
+    }
+
+    private fun measureTargetLanguageHeight(): Int {
+        val widthSpec = View.MeasureSpec.makeMeasureSpec(mainContentContainer.width.coerceAtLeast(1), View.MeasureSpec.AT_MOST)
+        val heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        targetLanguageLayout.measure(widthSpec, heightSpec)
+        return targetLanguageLayout.measuredHeight.coerceAtLeast(dpToPx(72f))
     }
 
     private fun persistAnalysisSelection(mode: String, targetLanguage: String?) {
@@ -586,8 +768,7 @@ class MainActivity : AppCompatActivity() {
                     latestBitmap = bitmap
                     cropEditorView.updateBitmapKeepingState(bitmap)
                     fullscreenEditorView?.updateBitmapKeepingState(bitmap)
-                    floatingPreviewCard.visibility = View.VISIBLE
-                    ensureFloatingPreviewVisible()
+                    showFloatingPreviewForContent()
                 } catch (ex: Exception) {
                     consecutiveFailures += 1
                     if (isConnectionFatal(ex) && consecutiveFailures >= 2) {
@@ -771,10 +952,9 @@ class MainActivity : AppCompatActivity() {
                     latestBitmap = bitmap
                     cropEditorView.setBitmap(bitmap)
                     rememberedEditorState?.let { cropEditorView.applyEditorState(it) }
-                    floatingPreviewCard.visibility = View.VISIBLE
-                    ensureFloatingPreviewVisible()
+                    showFloatingPreviewForContent()
                 } catch (_: Exception) {
-                    floatingPreviewCard.visibility = View.GONE
+                    hideFloatingPreviewCompletely()
                 }
 
                 statusText.text = if (autoReconnect) {
@@ -804,7 +984,7 @@ class MainActivity : AppCompatActivity() {
         if (!connected) {
             stopClipboardSubscription()
             exitPreviewFullscreen()
-            floatingPreviewCard.visibility = View.GONE
+            hideFloatingPreviewCompletely()
             applyCropEditorMode()
             applyRealtimeButtonStyle(isRunning = false)
         }
@@ -836,7 +1016,7 @@ class MainActivity : AppCompatActivity() {
                     if (isDraggingPreview) {
                         floatingPreviewCard.x = dragStartCardX + dx
                         floatingPreviewCard.y = dragStartCardY + dy
-                        clampFloatingPreviewPosition()
+                        clampFloatingPreviewPosition(allowEdgeOvershoot = true)
                     }
                     true
                 }
@@ -844,8 +1024,10 @@ class MainActivity : AppCompatActivity() {
                 MotionEvent.ACTION_UP,
                 MotionEvent.ACTION_CANCEL -> {
                     if (isDraggingPreview) {
-                        clampFloatingPreviewPosition()
-                        persistFloatingPreviewPosition()
+                        if (!hideFloatingPreviewIfNeeded()) {
+                            clampFloatingPreviewPosition()
+                            persistFloatingPreviewPosition()
+                        }
                     } else if (event.actionMasked == MotionEvent.ACTION_UP) {
                         enterPreviewFullscreen()
                     }
@@ -861,6 +1043,60 @@ class MainActivity : AppCompatActivity() {
         cropEditorView.setOnTouchListener(dragListener)
     }
 
+    private fun setupFloatingPreviewEdgeHandle() {
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop.toFloat()
+        val handleListener = View.OnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    hiddenHandleStartRawX = event.rawX
+                    hiddenHandleStartRawY = event.rawY
+                    hiddenHandleStartY = currentEdgeHandleY()
+                    isDraggingHiddenHandle = false
+                    true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - hiddenHandleStartRawX
+                    val dy = event.rawY - hiddenHandleStartRawY
+                    val draggedOut = when (previewHiddenSide) {
+                        PREVIEW_HIDDEN_LEFT -> dx > touchSlop
+                        PREVIEW_HIDDEN_RIGHT -> dx < -touchSlop
+                        else -> false
+                    }
+                    if (draggedOut) {
+                        restoreFloatingPreviewFromEdge(animated = true)
+                    } else if (kotlin.math.abs(dy) > touchSlop || isDraggingHiddenHandle) {
+                        isDraggingHiddenHandle = true
+                        setEdgeHandleY(hiddenHandleStartY + dy)
+                        syncPreviewNormalYWithEdgeHandle()
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_UP -> {
+                    if (isDraggingHiddenHandle) {
+                        isDraggingHiddenHandle = false
+                        syncPreviewNormalYWithEdgeHandle()
+                        persistFloatingPreviewPosition()
+                    } else {
+                        restoreFloatingPreviewFromEdge(animated = true)
+                    }
+                    true
+                }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    isDraggingHiddenHandle = false
+                    persistFloatingPreviewPosition()
+                    true
+                }
+                else -> false
+            }
+        }
+
+        floatingPreviewEdgeHandle.setOnTouchListener(handleListener)
+        floatingPreviewEdgeHandleText.setOnTouchListener(handleListener)
+    }
+
     private fun setupFullscreenControls() {
         fullscreenBackButton.setOnClickListener {
             if (isPreviewFullscreen) {
@@ -869,7 +1105,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun clampFloatingPreviewPosition() {
+    private fun clampFloatingPreviewPosition(allowEdgeOvershoot: Boolean = false) {
         val parentW = mainContentContainer.width.toFloat()
         val parentH = mainContentContainer.height.toFloat()
         val cardW = floatingPreviewCard.width.toFloat()
@@ -878,14 +1114,295 @@ class MainActivity : AppCompatActivity() {
 
         val maxX = (parentW - cardW).coerceAtLeast(0f)
         val maxY = (parentH - cardH).coerceAtLeast(0f)
-        floatingPreviewCard.x = floatingPreviewCard.x.coerceIn(0f, maxX)
+        val overshoot = previewEdgeAutoHideThresholdPx().toFloat()
+        val minX = if (allowEdgeOvershoot) -overshoot else 0f
+        val boundedMaxX = if (allowEdgeOvershoot) maxX + overshoot else maxX
+        floatingPreviewCard.x = floatingPreviewCard.x.coerceIn(minX, boundedMaxX)
         floatingPreviewCard.y = floatingPreviewCard.y.coerceIn(0f, maxY)
     }
 
     private fun ensureFloatingPreviewVisible() {
-        // Run after layout to avoid clamping with width/height == 0.
+        if (previewHiddenSide != PREVIEW_HIDDEN_NONE) {
+            floatingPreviewEdgeHandle.post {
+                updateFloatingPreviewEdgeHandlePosition()
+                persistFloatingPreviewPosition()
+            }
+            return
+        }
+
         floatingPreviewCard.post {
+            floatingPreviewCard.visibility = View.VISIBLE
+            floatingPreviewEdgeHandle.visibility = View.GONE
             clampFloatingPreviewPosition()
+            persistFloatingPreviewPosition()
+        }
+    }
+
+    private fun showFloatingPreviewForContent() {
+        if (previewHiddenSide == PREVIEW_HIDDEN_NONE) {
+            floatingPreviewCard.visibility = View.VISIBLE
+        }
+        ensureFloatingPreviewVisible()
+    }
+
+    private fun hideFloatingPreviewCompletely() {
+        floatingPreviewCard.animate().cancel()
+        floatingPreviewEdgeHandle.animate().cancel()
+        previewHiddenSide = PREVIEW_HIDDEN_NONE
+        floatingPreviewCard.visibility = View.GONE
+        floatingPreviewEdgeHandle.visibility = View.GONE
+    }
+
+    private fun hideFloatingPreviewIfNeeded(): Boolean {
+        val parentW = mainContentContainer.width.toFloat()
+        val cardW = floatingPreviewCard.width.toFloat()
+        if (parentW <= 0f || cardW <= 0f) {
+            return false
+        }
+
+        val maxX = (parentW - cardW).coerceAtLeast(0f)
+        val threshold = previewEdgeAutoHideThresholdPx().toFloat()
+        return when {
+            floatingPreviewCard.x <= -threshold -> {
+                hideFloatingPreviewToEdge(PREVIEW_HIDDEN_LEFT)
+                true
+            }
+
+            floatingPreviewCard.x >= maxX + threshold -> {
+                hideFloatingPreviewToEdge(PREVIEW_HIDDEN_RIGHT)
+                true
+            }
+
+            else -> false
+        }
+    }
+
+    private fun hideFloatingPreviewToEdge(side: Int) {
+        val resolvedSide = resolveSideFromVisibleWindowPosition()
+
+        clampFloatingPreviewPosition(allowEdgeOvershoot = false)
+        previewHiddenSide = resolvedSide
+        previewLastVisibleSide = resolvedSide
+        previewNormalX = floatingPreviewCard.x
+        previewNormalY = floatingPreviewCard.y
+        previewNormalWidth = clampPreviewWidth(floatingPreviewCard.width)
+        previewNormalHeight = aspectHeightForWidth(previewNormalWidth)
+        animateFloatingPreviewToEdge(resolvedSide)
+    }
+
+    private fun restoreFloatingPreviewFromEdge(animated: Boolean = true) {
+        if (previewHiddenSide == PREVIEW_HIDDEN_NONE) {
+            return
+        }
+
+        val parentW = mainContentContainer.width.toFloat()
+        val parentH = mainContentContainer.height.toFloat()
+        val cardW = floatingPreviewCard.width.toFloat()
+        val cardH = floatingPreviewCard.height.toFloat()
+        if (parentW <= 0f || parentH <= 0f || cardW <= 0f || cardH <= 0f) {
+            return
+        }
+
+        val side = previewHiddenSide
+        val maxX = (parentW - cardW).coerceAtLeast(0f)
+        val maxY = (parentH - cardH).coerceAtLeast(0f)
+        val handleHeight = max(floatingPreviewEdgeHandle.height, dpToPx(120f)).toFloat()
+        val centeredY = (currentEdgeHandleY() + handleHeight / 2f - cardH / 2f).coerceIn(0f, maxY)
+
+        previewHiddenSide = PREVIEW_HIDDEN_NONE
+        previewLastVisibleSide = side
+        previewNormalX = if (side == PREVIEW_HIDDEN_LEFT) 0f else maxX
+        previewNormalY = centeredY
+        animateFloatingPreviewFromEdge(side, centeredY, animated)
+    }
+
+    private fun updateFloatingPreviewEdgeHandlePosition(animated: Boolean = false) {
+        if (previewHiddenSide == PREVIEW_HIDDEN_NONE) {
+            floatingPreviewEdgeHandle.visibility = View.GONE
+            return
+        }
+
+        val parentW = mainContentContainer.width.toFloat()
+        val parentH = mainContentContainer.height.toFloat()
+        if (parentW <= 0f || parentH <= 0f) {
+            return
+        }
+
+        val handleW = max(floatingPreviewEdgeHandle.width, dpToPx(20f)).toFloat()
+        val handleH = max(floatingPreviewEdgeHandle.height, dpToPx(120f)).toFloat()
+        val previewHeight = if (previewNormalHeight > 0) previewNormalHeight.toFloat() else aspectHeightForWidth(defaultPreviewWidthPx()).toFloat()
+        val maxY = (parentH - handleH).coerceAtLeast(0f)
+        val handleY = (previewNormalY + (previewHeight - handleH) / 2f).coerceIn(0f, maxY)
+
+        val handleSide = if (previewHiddenSide == PREVIEW_HIDDEN_RIGHT) {
+            PREVIEW_HIDDEN_RIGHT
+        } else {
+            PREVIEW_HIDDEN_LEFT
+        }
+
+        val lp = (floatingPreviewEdgeHandle.layoutParams as? FrameLayout.LayoutParams)
+            ?: FrameLayout.LayoutParams(
+                floatingPreviewEdgeHandle.layoutParams?.width ?: ViewGroup.LayoutParams.WRAP_CONTENT,
+                floatingPreviewEdgeHandle.layoutParams?.height ?: ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
+        lp.gravity = if (handleSide == PREVIEW_HIDDEN_LEFT) {
+            Gravity.START or Gravity.TOP
+        } else {
+            Gravity.END or Gravity.TOP
+        }
+        lp.topMargin = handleY.toInt()
+        lp.marginStart = 0
+        lp.marginEnd = 0
+        floatingPreviewEdgeHandle.layoutParams = lp
+        floatingPreviewEdgeHandle.translationX = 0f
+        floatingPreviewEdgeHandleText.text = if (handleSide == PREVIEW_HIDDEN_LEFT) ">" else "<"
+        floatingPreviewEdgeHandle.visibility = View.VISIBLE
+        floatingPreviewCard.visibility = View.GONE
+        if (animated) {
+            floatingPreviewEdgeHandle.alpha = 0f
+            floatingPreviewEdgeHandle.translationX = if (handleSide == PREVIEW_HIDDEN_LEFT) -dpToPx(10f).toFloat() else dpToPx(10f).toFloat()
+            floatingPreviewEdgeHandle.animate()
+                .alpha(1f)
+                .translationX(0f)
+                .setDuration(180L)
+                .start()
+        } else {
+            floatingPreviewEdgeHandle.alpha = 1f
+            floatingPreviewEdgeHandle.translationX = 0f
+        }
+    }
+
+    private fun resolveSideFromVisibleWindowPosition(): Int {
+        val parentW = mainContentContainer.width.toFloat()
+        val cardW = floatingPreviewCard.width.toFloat()
+        if (parentW > 0f && cardW > 0f) {
+            val maxX = (parentW - cardW).coerceAtLeast(0f)
+            val clampedX = floatingPreviewCard.x.coerceIn(0f, maxX)
+            val centerX = clampedX + cardW / 2f
+            return if (centerX >= parentW / 2f) PREVIEW_HIDDEN_RIGHT else PREVIEW_HIDDEN_LEFT
+        }
+        return if (previewLastVisibleSide == PREVIEW_HIDDEN_LEFT || previewLastVisibleSide == PREVIEW_HIDDEN_RIGHT) {
+            previewLastVisibleSide
+        } else {
+            PREVIEW_HIDDEN_LEFT
+        }
+    }
+
+    private fun syncPreviewNormalYWithEdgeHandle() {
+        val parentH = mainContentContainer.height.toFloat()
+        if (parentH <= 0f) {
+            return
+        }
+        val previewHeight = if (floatingPreviewCard.height > 0) {
+            floatingPreviewCard.height.toFloat()
+        } else {
+            aspectHeightForWidth(previewNormalWidth.coerceAtLeast(defaultPreviewWidthPx())).toFloat()
+        }
+        val handleHeight = max(floatingPreviewEdgeHandle.height, dpToPx(120f)).toFloat()
+        val maxPreviewY = (parentH - previewHeight).coerceAtLeast(0f)
+        previewNormalY = (currentEdgeHandleY() + handleHeight / 2f - previewHeight / 2f).coerceIn(0f, maxPreviewY)
+    }
+
+    private fun currentEdgeHandleY(): Float {
+        val lp = floatingPreviewEdgeHandle.layoutParams as? FrameLayout.LayoutParams
+        return lp?.topMargin?.toFloat() ?: floatingPreviewEdgeHandle.y
+    }
+
+    private fun setEdgeHandleY(targetY: Float) {
+        val parentH = mainContentContainer.height.toFloat()
+        val handleH = max(floatingPreviewEdgeHandle.height, dpToPx(120f)).toFloat()
+        val maxY = (parentH - handleH).coerceAtLeast(0f)
+        val clamped = targetY.coerceIn(0f, maxY)
+        val lp = (floatingPreviewEdgeHandle.layoutParams as? FrameLayout.LayoutParams)
+            ?: FrameLayout.LayoutParams(
+                floatingPreviewEdgeHandle.layoutParams?.width ?: ViewGroup.LayoutParams.WRAP_CONTENT,
+                floatingPreviewEdgeHandle.layoutParams?.height ?: ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
+        lp.topMargin = clamped.toInt()
+        floatingPreviewEdgeHandle.layoutParams = lp
+    }
+
+    private fun animateFloatingPreviewToEdge(side: Int) {
+        val parentW = mainContentContainer.width.toFloat()
+        val maxX = (parentW - floatingPreviewCard.width).coerceAtLeast(0f)
+        val exitX = if (side == PREVIEW_HIDDEN_LEFT) {
+            -floatingPreviewCard.width * 0.4f
+        } else {
+            maxX + floatingPreviewCard.width * 0.4f
+        }
+
+        floatingPreviewCard.animate().cancel()
+        floatingPreviewEdgeHandle.animate().cancel()
+        floatingPreviewCard.visibility = View.VISIBLE
+        floatingPreviewCard.alpha = 1f
+        floatingPreviewCard.scaleX = 1f
+        floatingPreviewCard.scaleY = 1f
+        floatingPreviewCard.animate()
+            .x(exitX)
+            .alpha(0f)
+            .scaleX(0.92f)
+            .scaleY(0.92f)
+            .setDuration(220L)
+            .setListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    floatingPreviewCard.animate().setListener(null)
+                    floatingPreviewCard.visibility = View.GONE
+                    floatingPreviewCard.alpha = 1f
+                    floatingPreviewCard.scaleX = 1f
+                    floatingPreviewCard.scaleY = 1f
+                    updateFloatingPreviewEdgeHandlePosition(animated = true)
+                    persistFloatingPreviewPosition()
+                }
+            })
+            .start()
+    }
+
+    private fun animateFloatingPreviewFromEdge(side: Int, centeredY: Float, animated: Boolean) {
+        val parentW = mainContentContainer.width.toFloat()
+        val maxX = (parentW - floatingPreviewCard.width).coerceAtLeast(0f)
+        val restoreX = if (side == PREVIEW_HIDDEN_LEFT) 0f else maxX
+        val startX = if (side == PREVIEW_HIDDEN_LEFT) {
+            -floatingPreviewCard.width * 0.35f
+        } else {
+            maxX + floatingPreviewCard.width * 0.35f
+        }
+
+        floatingPreviewCard.animate().cancel()
+        floatingPreviewEdgeHandle.animate().cancel()
+
+        floatingPreviewCard.x = if (animated) startX else restoreX
+        floatingPreviewCard.y = centeredY
+        floatingPreviewCard.alpha = if (animated) 0f else 1f
+        floatingPreviewCard.scaleX = if (animated) 0.92f else 1f
+        floatingPreviewCard.scaleY = if (animated) 0.92f else 1f
+        floatingPreviewCard.visibility = View.VISIBLE
+
+        if (animated) {
+            floatingPreviewEdgeHandle.animate()
+                .alpha(0f)
+                .translationX(if (side == PREVIEW_HIDDEN_LEFT) -dpToPx(10f).toFloat() else dpToPx(10f).toFloat())
+                .setDuration(120L)
+                .withEndAction {
+                    floatingPreviewEdgeHandle.visibility = View.GONE
+                    floatingPreviewEdgeHandle.alpha = 1f
+                    floatingPreviewEdgeHandle.translationX = 0f
+                }
+                .start()
+            floatingPreviewCard.animate()
+                .x(restoreX)
+                .alpha(1f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(220L)
+                .withEndAction {
+                    persistFloatingPreviewPosition()
+                }
+                .start()
+        } else {
+            floatingPreviewEdgeHandle.visibility = View.GONE
+            floatingPreviewCard.alpha = 1f
+            floatingPreviewCard.scaleX = 1f
+            floatingPreviewCard.scaleY = 1f
             persistFloatingPreviewPosition()
         }
     }
@@ -1002,6 +1519,10 @@ class MainActivity : AppCompatActivity() {
         return dpToPx(previewDefaultWidthDp)
     }
 
+    private fun previewEdgeAutoHideThresholdPx(): Int {
+        return dpToPx(72f)
+    }
+
     private fun maxPreviewWidthPx(): Int {
         return dpToPx(previewMaxWidthDp)
     }
@@ -1021,6 +1542,8 @@ class MainActivity : AppCompatActivity() {
     private fun restoreFloatingPreviewPosition() {
         mainContentContainer.post {
             isPreviewFullscreen = false
+            previewHiddenSide = floatingPrefs.getInt("hiddenSide", PREVIEW_HIDDEN_NONE)
+            previewLastVisibleSide = floatingPrefs.getInt("lastVisibleSide", PREVIEW_HIDDEN_RIGHT)
             previewNormalX = floatingPrefs.getFloat("normalX", 0f)
             previewNormalY = floatingPrefs.getFloat("normalY", 0f)
             previewNormalWidth = clampPreviewWidth(
@@ -1057,16 +1580,25 @@ class MainActivity : AppCompatActivity() {
                 floatingPreviewCard.x = ((mainContentContainer.width - floatingPreviewCard.width) / 2f).coerceAtLeast(0f)
                 floatingPreviewCard.y = ((mainContentContainer.height - floatingPreviewCard.height) / 2f).coerceAtLeast(0f)
             }
-            ensureFloatingPreviewVisible()
+            clampFloatingPreviewPosition()
+            previewNormalX = floatingPreviewCard.x
+            previewNormalY = floatingPreviewCard.y
+            previewLastVisibleSide = resolveSideFromVisibleWindowPosition()
+            if (previewHiddenSide == PREVIEW_HIDDEN_NONE) {
+                floatingPreviewEdgeHandle.visibility = View.GONE
+            } else {
+                updateFloatingPreviewEdgeHandlePosition()
+            }
         }
     }
 
     private fun persistFloatingPreviewPosition() {
-        if (!isPreviewFullscreen) {
+        if (!isPreviewFullscreen && previewHiddenSide == PREVIEW_HIDDEN_NONE) {
             previewNormalX = floatingPreviewCard.x
             previewNormalY = floatingPreviewCard.y
             previewNormalWidth = clampPreviewWidth(floatingPreviewCard.width)
             previewNormalHeight = aspectHeightForWidth(previewNormalWidth)
+            previewLastVisibleSide = resolveSideFromVisibleWindowPosition()
         }
 
         val parentW = mainContentContainer.width.toFloat()
@@ -1089,6 +1621,8 @@ class MainActivity : AppCompatActivity() {
             .putFloat("normalYRatio", yRatio)
             .putInt("normalWidth", previewNormalWidth)
             .putInt("normalHeight", previewNormalHeight)
+            .putInt("hiddenSide", previewHiddenSide)
+            .putInt("lastVisibleSide", previewLastVisibleSide)
             .apply()
     }
 

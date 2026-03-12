@@ -112,6 +112,28 @@
                 </LinearLayout>
             </FrameLayout>
         </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/floatingPreviewEdgeHandle"
+            android:layout_width="20dp"
+            android:layout_height="120dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="@color/ink_900"
+            app:cardCornerRadius="10dp"
+            app:cardElevation="6dp"
+            app:strokeColor="@color/surface_stroke"
+            app:strokeWidth="1dp">
+
+            <TextView
+                android:id="@+id/textFloatingPreviewEdgeHandle"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text=">"
+                android:textColor="@color/surface_white"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </com.google.android.material.card.MaterialCardView>
     </FrameLayout>
 
     <com.google.android.material.card.MaterialCardView
