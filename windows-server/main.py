@@ -27,6 +27,7 @@ from protocol import recv_frame, send_frame
 _log_dir = Path(__file__).with_name("log")
 _log_dir.mkdir(parents=True, exist_ok=True)
 _log_file = _log_dir / "server.log"
+_app_settings_file = Path(__file__).with_name("app_settings.json")
 _WINDOW_WIDTH = 830
 _WINDOW_HEIGHT = 360
 
@@ -41,23 +42,66 @@ logging.basicConfig(
 
 
 _clipboard_suppress_lock = threading.Lock()
-_clipboard_suppress_count: int = 0
+_clipboard_suppressed_text: str | None = None
 _stop_event = threading.Event()
 
 
-def _mark_clipboard_suppressed_once() -> None:
-    global _clipboard_suppress_count
-    with _clipboard_suppress_lock:
-        _clipboard_suppress_count += 1
+def _normalize_clipboard_text(text: str | None) -> str | None:
+    if text is None:
+        return None
+    normalized = text.strip()
+    return normalized or None
 
 
-def _should_suppress_clipboard_push_once() -> bool:
-    global _clipboard_suppress_count
+def _mark_clipboard_suppressed_text(text: str | None) -> None:
+    global _clipboard_suppressed_text
     with _clipboard_suppress_lock:
-        if _clipboard_suppress_count > 0:
-            _clipboard_suppress_count -= 1
+        _clipboard_suppressed_text = _normalize_clipboard_text(text)
+
+
+def _should_suppress_clipboard_push(text: str | None) -> bool:
+    global _clipboard_suppressed_text
+    normalized = _normalize_clipboard_text(text)
+    with _clipboard_suppress_lock:
+        if normalized and normalized == _clipboard_suppressed_text:
+            _clipboard_suppressed_text = None
             return True
         return False
+
+
+def _clear_clipboard_suppression_if_stale(text: str | None) -> None:
+    global _clipboard_suppressed_text
+    normalized = _normalize_clipboard_text(text)
+    with _clipboard_suppress_lock:
+        if _clipboard_suppressed_text is not None and normalized != _clipboard_suppressed_text:
+            _clipboard_suppressed_text = None
+
+
+def _load_app_settings() -> dict[str, Any]:
+    if not _app_settings_file.exists():
+        return {"confirmOnClose": True}
+
+    try:
+        data = _json.loads(_app_settings_file.read_text(encoding="utf-8"))
+    except Exception:
+        return {"confirmOnClose": True}
+
+    if not isinstance(data, dict):
+        return {"confirmOnClose": True}
+
+    return {
+        "confirmOnClose": bool(data.get("confirmOnClose", True)),
+    }
+
+
+def _persist_app_settings(settings: dict[str, Any]) -> None:
+    _app_settings_file.write_text(
+        _json.dumps(settings, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+_app_settings = _load_app_settings()
 
 
 def get_local_ipv4_addresses() -> list[str]:
@@ -298,16 +342,15 @@ def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
             if msg_type == "SUBSCRIBE_CLIPBOARD":
                 logging.info("clipboard subscription started: %s:%s", addr[0], addr[1])
                 baseline = read_clipboard_text()
-                last_text = baseline.strip() if baseline else None
+                last_text = _normalize_clipboard_text(baseline)
                 while True:
-                    text = read_clipboard_text()
-                    if text:
-                        text = text.strip()
+                    text = _normalize_clipboard_text(read_clipboard_text())
                     if text and text != last_text:
-                        if _should_suppress_clipboard_push_once():
+                        if _should_suppress_clipboard_push(text):
                             last_text = text
                             time.sleep(config.CLIPBOARD_POLL_INTERVAL_SECONDS)
                             continue
+                        _clear_clipboard_suppression_if_stale(text)
                         send_frame(
                             conn,
                             {
@@ -336,8 +379,8 @@ def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
 
                 try:
                     normalized = text[: config.CLIPBOARD_MAX_TEXT_CHARS].strip()
+                    _mark_clipboard_suppressed_text(normalized)
                     write_clipboard_text(normalized)
-                    _mark_clipboard_suppressed_once()
                     send_frame(
                         conn,
                         {
@@ -708,7 +751,59 @@ if __name__ == "__main__":
         root.after(10, root.quit)
 
     def _confirm_exit_from_window() -> None:
-        if messagebox.askyesno("确认关闭", "确认关闭 PrepPro 电脑端吗？"):
+        if not _app_settings.get("confirmOnClose", True):
+            _shutdown_app()
+            return
+
+        dialog = tk.Toplevel(root)
+        dialog.title("确认关闭")
+        dialog.resizable(False, False)
+        dialog.transient(root)
+        dialog.grab_set()
+        dialog.configure(bg="#eef3f8")
+
+        remember_choice = tk.BooleanVar(value=False)
+        result = {"confirmed": False}
+
+        container = ttk.Frame(dialog, style="Card.TFrame", padding=18)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(container, text="确认关闭 PrepPro 电脑端吗？", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(container, text="关闭后服务与托盘图标都会退出。", style="Hint.TLabel").pack(
+            anchor="w", pady=(6, 12)
+        )
+        ttk.Checkbutton(container, text="下次不再提醒", variable=remember_choice).pack(anchor="w")
+
+        actions = ttk.Frame(container, style="Card.TFrame")
+        actions.pack(fill=tk.X, pady=(14, 0))
+
+        def _close_dialog(confirm: bool) -> None:
+            result["confirmed"] = confirm
+            if confirm and remember_choice.get():
+                _app_settings["confirmOnClose"] = False
+                try:
+                    _persist_app_settings(_app_settings)
+                except Exception:
+                    logging.exception("persist app settings failed")
+            dialog.grab_release()
+            dialog.destroy()
+
+        ttk.Button(actions, text="取消", style="Tray.TButton", command=lambda: _close_dialog(False)).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(actions, text="关闭", style="Tray.TButton", command=lambda: _close_dialog(True)).pack(
+            side=tk.RIGHT, padx=(0, 8)
+        )
+
+        dialog.protocol("WM_DELETE_WINDOW", lambda: _close_dialog(False))
+        dialog.update_idletasks()
+        dialog.geometry(
+            f"+{root.winfo_x() + max(0, (root.winfo_width() - dialog.winfo_width()) // 2)}"
+            f"+{root.winfo_y() + max(0, (root.winfo_height() - dialog.winfo_height()) // 2)}"
+        )
+        dialog.wait_window()
+
+        if result["confirmed"]:
             _shutdown_app()
 
     root.protocol("WM_DELETE_WINDOW", _confirm_exit_from_window)

@@ -54,4 +54,8 @@ Filename: "{app}\get-start.bat"; Description: "安装完成后立即启动 PrepP
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\.venv"
 Type: filesandordirs; Name: "{app}\log"
+Type: filesandordirs; Name: "{app}\__pycache__"
+Type: filesandordirs; Name: "{app}\tests\__pycache__"
 Type: files; Name: "{app}\server.log"
+Type: files; Name: "{app}\model_profiles.json"
+Type: files; Name: "{app}\app_settings.json"

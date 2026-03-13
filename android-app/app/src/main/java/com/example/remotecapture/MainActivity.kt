@@ -92,6 +92,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var targetLanguageSpinner: Spinner
     private lateinit var targetLanguageLayout: View
     private lateinit var captureButton: Button
+    private lateinit var reconnectButton: Button
     private lateinit var uploadAnalyzeButton: Button
     private lateinit var realtimeButton: MaterialButton
     private lateinit var analysisText: TextView
@@ -197,6 +198,7 @@ class MainActivity : AppCompatActivity() {
         targetLanguageSpinner = captureRoot.findViewById(R.id.spinnerTargetLanguage)
         targetLanguageLayout = captureRoot.findViewById(R.id.layoutTargetLanguage)
         captureButton = captureRoot.findViewById(R.id.buttonCapture)
+        reconnectButton = captureRoot.findViewById(R.id.buttonReconnect)
         val cropSaveButton = captureRoot.findViewById<Button>(R.id.buttonCropSave)
         val modelSettingsButton = captureRoot.findViewById<Button>(R.id.buttonModelSettings)
         scanQRButton = captureRoot.findViewById(R.id.buttonScanQR)
@@ -289,6 +291,25 @@ class MainActivity : AppCompatActivity() {
                     captureButton.isEnabled = true
                 }
             }
+        }
+
+        reconnectButton.setOnClickListener {
+            if (reconnectJob?.isActive == true) {
+                Toast.makeText(this, "正在重连中...", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            val host = currentHost()
+            if (host.isBlank()) {
+                Toast.makeText(this, "请先扫码连接", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            val port = currentPort()
+            stopRealtimeSilently()
+            applyRealtimeButtonStyle(isRunning = false)
+            realtimeButton.text = "开始实时预览"
+            connectToServer(host, port, autoReconnect = false)
         }
 
         realtimeButton.setOnClickListener {
