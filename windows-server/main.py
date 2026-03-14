@@ -581,7 +581,17 @@ def _configure_windows_dpi() -> None:
         return
 
     try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        dpi_awareness_context_per_monitor_aware_v2 = -4
+        ok = ctypes.windll.user32.SetProcessDpiAwarenessContext(  # type: ignore[attr-defined]
+            ctypes.c_void_p(dpi_awareness_context_per_monitor_aware_v2)
+        )
+        if ok:
+            return
+    except Exception:
+        pass
+
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
         return
     except Exception:
         pass
@@ -608,6 +618,8 @@ def _fit_window_to_content(root: tk.Tk) -> tuple[int, int]:
 
 
 if __name__ == "__main__":
+    _configure_windows_dpi()
+
     server_thread = threading.Thread(target=start_server, daemon=True)
     server_thread.start()
 
@@ -618,7 +630,6 @@ if __name__ == "__main__":
     _gui_queue: _queue.Queue = _queue.Queue()
 
     # ── Tkinter info window ──────────────────────────────────────────────────
-    _configure_windows_dpi()
     root = tk.Tk()
     root.title("PrepPro 电脑端")
     root.resizable(False, False)

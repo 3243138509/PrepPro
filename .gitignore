@@ -27,3 +27,10 @@ windows-server/__pycache__/
 # Build artifacts - large files
 windows-server/dist-installer/
 windows-server.zip
+
+backend/
+frontend/
+docker/
+
+windows-server/installer/bundled-python/
+windows-server/installer/*.exe

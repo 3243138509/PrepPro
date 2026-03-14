@@ -1,4 +1,5 @@
 import base64
+import ctypes
 import io
 import os
 import platform
@@ -12,6 +13,46 @@ from PIL import Image
 import mss
 
 
+_WINDOWS_DPI_CONFIGURED = False
+
+
+def _configure_windows_capture_dpi() -> None:
+    global _WINDOWS_DPI_CONFIGURED
+    if _WINDOWS_DPI_CONFIGURED:
+        return
+
+    if platform.system() != "Windows":
+        _WINDOWS_DPI_CONFIGURED = True
+        return
+
+    # Prefer Per-Monitor V2 so multi-display capture uses physical pixels
+    # on mixed-DPI setups. Fallback to older APIs if unavailable.
+    try:
+        dpi_awareness_context_per_monitor_aware_v2 = -4
+        ok = ctypes.windll.user32.SetProcessDpiAwarenessContext(  # type: ignore[attr-defined]
+            ctypes.c_void_p(dpi_awareness_context_per_monitor_aware_v2)
+        )
+        if ok:
+            _WINDOWS_DPI_CONFIGURED = True
+            return
+    except Exception:
+        pass
+
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # type: ignore[attr-defined]
+        _WINDOWS_DPI_CONFIGURED = True
+        return
+    except Exception:
+        pass
+
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+    _WINDOWS_DPI_CONFIGURED = True
+
+
 def _encode_image_to_jpeg_base64(image: Image.Image, quality: int) -> tuple[str, int, int]:
     output = io.BytesIO()
     image.save(output, format="JPEG", quality=quality, optimize=True)
@@ -21,6 +62,7 @@ def _encode_image_to_jpeg_base64(image: Image.Image, quality: int) -> tuple[str,
 
 
 def _capture_with_mss_image(display_id: int) -> Image.Image:
+    _configure_windows_capture_dpi()
     with mss.mss() as sct:
         monitors = sct.monitors
         if display_id < 1 or display_id >= len(monitors):

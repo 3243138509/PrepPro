@@ -5,3 +5,4 @@ python-dotenv==1.0.1
 openai==1.65.5
 rapidocr-api==0.2.0
 qrcode[pil]==8.0
+langchain>=1.0.0
