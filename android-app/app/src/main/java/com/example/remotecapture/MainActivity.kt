@@ -1110,13 +1110,33 @@ class MainActivity : AppCompatActivity() {
             setTextColor(ContextCompat.getColor(this@MainActivity, R.color.ink_900))
             textSize = 14f
         }
+        val isCode = turn.route.equals(ANALYSIS_MODE_CODE, ignoreCase = true) || turn.resultText.contains("```")
+        if (isCode) {
+            content.typeface = android.graphics.Typeface.MONOSPACE
+        }
         val markdown = buildString {
             append(turn.resultText)
             if (turn.modelNotice.isNotBlank()) append("\n\n> ${turn.modelNotice}")
             if (turn.executionReport.isNotBlank()) append("\n\n> ${turn.executionReport}")
         }
         markwon.setMarkdown(content, markdown)
-        container.addView(content)
+
+        if (isCode) {
+            val hScroll = com.PrepPro.mobile.widget.CodeScrollView(this).apply {
+                isHorizontalScrollBarEnabled = true
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+                addView(content, ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ))
+            }
+            container.addView(hScroll)
+        } else {
+            container.addView(content)
+        }
 
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
