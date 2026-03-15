@@ -18,6 +18,13 @@ class TcpClient(
     private val port: Int,
     private val password: String = ""
 ) {
+    private val normalizedHost: String = host.trim()
+
+    init {
+        require(normalizedHost.isNotEmpty()) { "server host is empty, please rescan QR code" }
+        require(port in 1..65535) { "invalid server port: $port" }
+    }
+
     companion object {
         private const val CONNECT_TIMEOUT_MS = 4000
         private const val DEFAULT_READ_TIMEOUT_MS = 8000
@@ -28,6 +35,9 @@ class TcpClient(
         val text: String,
         val ocrText: String,
         val modelNotice: String,
+        val agentRoute: String,
+        val improvementOptions: List<String>,
+        val executionReport: String,
     )
 
     data class DisplayInfo(
@@ -54,9 +64,13 @@ class TcpClient(
         val activeIndex: Int,
     )
 
+    private fun connectSocket(socket: Socket) {
+        socket.connect(InetSocketAddress(normalizedHost, port), CONNECT_TIMEOUT_MS)
+    }
+
     fun listDisplays(): List<DisplayInfo> {
         Socket().use { socket ->
-            socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            connectSocket(socket)
             socket.soTimeout = DEFAULT_READ_TIMEOUT_MS
 
             val input = DataInputStream(socket.getInputStream())
@@ -102,7 +116,7 @@ class TcpClient(
 
     fun authenticateOnly() {
         Socket().use { socket ->
-            socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            connectSocket(socket)
             socket.soTimeout = DEFAULT_READ_TIMEOUT_MS
 
             val input = DataInputStream(socket.getInputStream())
@@ -122,7 +136,7 @@ class TcpClient(
 
     fun capture(displayId: Int = 1): Bitmap {
         Socket().use { socket ->
-            socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            connectSocket(socket)
             socket.soTimeout = DEFAULT_READ_TIMEOUT_MS
 
             val input = DataInputStream(socket.getInputStream())
@@ -203,7 +217,7 @@ class TcpClient(
         targetLanguage: String?,
     ): AnalyzeResult {
         Socket().use { socket ->
-            socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            connectSocket(socket)
             socket.soTimeout = ANALYZE_READ_TIMEOUT_MS
 
             val input = DataInputStream(socket.getInputStream())
@@ -241,6 +255,9 @@ class TcpClient(
                         text = response.optString("text", ""),
                         ocrText = response.optString("ocrText", ""),
                         modelNotice = response.optString("modelNotice", ""),
+                        agentRoute = response.optString("agentRoute", ""),
+                        improvementOptions = parseImprovementOptions(response),
+                        executionReport = parseExecutionReport(response),
                     )
                 }
 
@@ -282,7 +299,7 @@ class TcpClient(
         targetLanguage: String?,
     ): AnalyzeResult {
         Socket().use { socket ->
-            socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            connectSocket(socket)
             socket.soTimeout = ANALYZE_READ_TIMEOUT_MS
 
             val input = DataInputStream(socket.getInputStream())
@@ -320,6 +337,211 @@ class TcpClient(
                         text = response.optString("text", ""),
                         ocrText = response.optString("ocrText", ""),
                         modelNotice = response.optString("modelNotice", ""),
+                        agentRoute = response.optString("agentRoute", ""),
+                        improvementOptions = parseImprovementOptions(response),
+                        executionReport = parseExecutionReport(response),
+                    )
+                }
+
+                "ERROR" -> {
+                    throw IllegalStateException(response.optString("message", "server error"))
+                }
+
+                else -> throw IllegalStateException("unexpected response")
+            }
+        }
+    }
+
+    fun analyzeAgent(
+        bitmap: Bitmap,
+        prompt: String,
+        targetLanguage: String? = null,
+        improvementRequest: String? = null,
+        currentText: String? = null,
+        routeHint: String? = null,
+    ): AnalyzeResult {
+        val imageBase64 = encodeBitmapToBase64(bitmap)
+        repeat(2) { attempt ->
+            try {
+                return analyzeAgentOnce(
+                    imageBase64 = imageBase64,
+                    prompt = prompt,
+                    targetLanguage = targetLanguage,
+                    improvementRequest = improvementRequest,
+                    currentText = currentText,
+                    routeHint = routeHint,
+                )
+            } catch (ex: SocketTimeoutException) {
+                if (attempt == 1) {
+                    throw IllegalStateException(
+                        "server analyze response timed out (> ${ANALYZE_READ_TIMEOUT_MS / 1000}s)",
+                        ex,
+                    )
+                }
+            }
+        }
+
+        throw IllegalStateException("analyze agent request failed")
+    }
+
+    fun analyzeAgentText(
+        sourceText: String,
+        prompt: String,
+        targetLanguage: String? = null,
+        improvementRequest: String? = null,
+        currentText: String? = null,
+        routeHint: String? = null,
+    ): AnalyzeResult {
+        repeat(2) { attempt ->
+            try {
+                return analyzeAgentTextOnce(
+                    sourceText = sourceText,
+                    prompt = prompt,
+                    targetLanguage = targetLanguage,
+                    improvementRequest = improvementRequest,
+                    currentText = currentText,
+                    routeHint = routeHint,
+                )
+            } catch (ex: SocketTimeoutException) {
+                if (attempt == 1) {
+                    throw IllegalStateException(
+                        "server analyze response timed out (> ${ANALYZE_READ_TIMEOUT_MS / 1000}s)",
+                        ex,
+                    )
+                }
+            }
+        }
+        throw IllegalStateException("analyze agent text request failed")
+    }
+
+    private fun analyzeAgentOnce(
+        imageBase64: String,
+        prompt: String,
+        targetLanguage: String?,
+        improvementRequest: String?,
+        currentText: String?,
+        routeHint: String?,
+    ): AnalyzeResult {
+        Socket().use { socket ->
+            connectSocket(socket)
+            socket.soTimeout = ANALYZE_READ_TIMEOUT_MS
+
+            val input = DataInputStream(socket.getInputStream())
+            val output = DataOutputStream(socket.getOutputStream())
+
+            Frames.sendJson(output, JSONObject().apply {
+                put("type", "AUTH")
+                put("password", password)
+            })
+
+            val authReply = Frames.readJson(input)
+            if (authReply.optString("type") != "AUTH_OK") {
+                throw IllegalStateException(authReply.optString("message", "auth failed"))
+            }
+
+            val requestId = UUID.randomUUID().toString()
+            Frames.sendJson(output, JSONObject().apply {
+                put("type", "ANALYZE_AGENT")
+                put("requestId", requestId)
+                put("imageBase64", imageBase64)
+                put("prompt", prompt)
+                if (!targetLanguage.isNullOrBlank()) {
+                    put("targetLanguage", targetLanguage)
+                }
+                if (!improvementRequest.isNullOrBlank()) {
+                    put("improvementRequest", improvementRequest)
+                }
+                if (!currentText.isNullOrBlank()) {
+                    put("currentText", currentText)
+                }
+                if (!routeHint.isNullOrBlank()) {
+                    put("routeHint", routeHint)
+                }
+            })
+
+            val response = Frames.readJson(input)
+            when (response.optString("type")) {
+                "ANALYZE_RESULT" -> {
+                    if (response.optString("requestId") != requestId) {
+                        throw IllegalStateException("requestId mismatch")
+                    }
+                    return AnalyzeResult(
+                        text = response.optString("text", ""),
+                        ocrText = response.optString("ocrText", ""),
+                        modelNotice = response.optString("modelNotice", ""),
+                        agentRoute = response.optString("agentRoute", ""),
+                        improvementOptions = parseImprovementOptions(response),
+                        executionReport = parseExecutionReport(response),
+                    )
+                }
+
+                "ERROR" -> {
+                    throw IllegalStateException(response.optString("message", "server error"))
+                }
+
+                else -> throw IllegalStateException("unexpected response")
+            }
+        }
+    }
+
+    private fun analyzeAgentTextOnce(
+        sourceText: String,
+        prompt: String,
+        targetLanguage: String?,
+        improvementRequest: String?,
+        currentText: String?,
+        routeHint: String?,
+    ): AnalyzeResult {
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            socket.soTimeout = ANALYZE_READ_TIMEOUT_MS
+
+            val input = DataInputStream(socket.getInputStream())
+            val output = DataOutputStream(socket.getOutputStream())
+
+            Frames.sendJson(output, JSONObject().apply {
+                put("type", "AUTH")
+                put("password", password)
+            })
+
+            val authReply = Frames.readJson(input)
+            if (authReply.optString("type") != "AUTH_OK") {
+                throw IllegalStateException(authReply.optString("message", "auth failed"))
+            }
+
+            val requestId = UUID.randomUUID().toString()
+            Frames.sendJson(output, JSONObject().apply {
+                put("type", "ANALYZE_AGENT")
+                put("requestId", requestId)
+                put("text", sourceText)
+                put("prompt", prompt)
+                if (!targetLanguage.isNullOrBlank()) {
+                    put("targetLanguage", targetLanguage)
+                }
+                if (!improvementRequest.isNullOrBlank()) {
+                    put("improvementRequest", improvementRequest)
+                }
+                if (!currentText.isNullOrBlank()) {
+                    put("currentText", currentText)
+                }
+                if (!routeHint.isNullOrBlank()) {
+                    put("routeHint", routeHint)
+                }
+            })
+
+            val response = Frames.readJson(input)
+            when (response.optString("type")) {
+                "ANALYZE_RESULT" -> {
+                    if (response.optString("requestId") != requestId) {
+                        throw IllegalStateException("requestId mismatch")
+                    }
+                    return AnalyzeResult(
+                        text = response.optString("text", ""),
+                        ocrText = response.optString("ocrText", ""),
+                        modelNotice = response.optString("modelNotice", ""),
+                        agentRoute = response.optString("agentRoute", ""),
+                        improvementOptions = parseImprovementOptions(response),
+                        executionReport = parseExecutionReport(response),
                     )
                 }
 
@@ -334,7 +556,7 @@ class TcpClient(
 
     fun subscribeClipboard(onClipboardText: (ClipboardPush) -> Unit) {
         Socket().use { socket ->
-            socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            connectSocket(socket)
             socket.soTimeout = 0
 
             val input = DataInputStream(socket.getInputStream())
@@ -536,12 +758,34 @@ class TcpClient(
         )
     }
 
+    private fun parseImprovementOptions(response: JSONObject): List<String> {
+        val arr = response.optJSONArray("improvementOptions") ?: return emptyList()
+        val result = mutableListOf<String>()
+        for (i in 0 until arr.length()) {
+            val item = arr.optString(i).trim()
+            if (item.isNotEmpty()) {
+                result.add(item)
+            }
+        }
+        return result
+    }
+
+    private fun parseExecutionReport(response: JSONObject): String {
+        val report = response.optJSONObject("executionReport") ?: return ""
+        val success = report.optBoolean("success", false)
+        val summary = report.optString("summary", "").trim()
+        if (summary.isEmpty()) {
+            return if (success) "运行校验通过" else "运行校验未通过"
+        }
+        return if (success) "运行校验通过：$summary" else "运行校验未通过：$summary"
+    }
+
     private inline fun <T> withAuthedSocket(
         readTimeoutMs: Int,
         block: (DataInputStream, DataOutputStream) -> T,
     ): T {
         Socket().use { socket ->
-            socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            connectSocket(socket)
             socket.soTimeout = readTimeoutMs
 
             val input = DataInputStream(socket.getInputStream())

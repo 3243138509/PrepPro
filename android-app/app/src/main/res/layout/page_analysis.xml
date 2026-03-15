@@ -34,14 +34,55 @@
                     android:textSize="12sp"
                     android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/textAnalysis"
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/buttonOpenHistory"
+                    style="@style/Widget.PrepPro.Button.Secondary"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="解析结果: (暂无)"
-                    android:textColor="@color/ink_900"
-                    android:textSize="14sp" />
+                    android:layout_marginTop="8dp"
+                    android:text="历史对话" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/buttonToggleOcr"
+                    style="@style/Widget.PrepPro.Button.Secondary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="OCR 预扫描（点击展开）" />
+
+                <LinearLayout
+                    android:id="@+id/layoutOcrPreview"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_input_field"
+                    android:orientation="vertical"
+                    android:padding="10dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:id="@+id/textOcrPreview"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:maxLines="8"
+                        android:text="(空)"
+                        android:textColor="@color/ink_900"
+                        android:textIsSelectable="true"
+                        android:textSize="13sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/layoutConversationContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:id="@+id/textAnalysis"
+                    android:layout_width="1dp"
+                    android:layout_height="1dp"
+                    android:visibility="gone" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/buttonCopyAnalysisToPc"

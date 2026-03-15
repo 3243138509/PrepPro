@@ -163,6 +163,16 @@
                         android:background="@drawable/bg_spinner_field"
                         android:popupBackground="@drawable/bg_spinner_popup" />
                 </LinearLayout>
+
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchUseLocalClassifier"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:checked="false"
+                    android:text="Agent 模式使用本地分类（需有 GGUF 模型）"
+                    android:textColor="@color/ink_700"
+                    android:textSize="13sp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -199,21 +209,6 @@
                     android:textColor="@color/ink_900"
                     android:textSize="14sp" />
 
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="10dp"
-                    android:background="@color/surface_stroke" />
-
-                <TextView
-                    android:id="@+id/textParseState"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="解析状态: 待解析"
-                    android:textColor="@color/ink_900"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

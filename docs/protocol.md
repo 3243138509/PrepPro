@@ -180,7 +180,14 @@
   "requestId": "uuid-string",
   "text": "...模型输出...",
   "ocrText": "...OCR 文本（可能为空）...",
-  "modelNotice": "...模型提示（可能为空）..."
+  "modelNotice": "...模型提示（可能为空）...",
+  "agentRoute": "可选，agent 模式下为 qa 或 code",
+  "improvementOptions": ["可选，agent 模式动态改进项"],
+  "executionReport": {
+    "success": true,
+    "summary": "可选，代码运行/编译检查摘要",
+    "returnCode": 0
+  }
 }
 ```
 
@@ -216,13 +223,75 @@
   "requestId": "uuid-string",
   "text": "...模型输出...",
   "ocrText": "",
-  "modelNotice": "...模型提示（可能为空）..."
+  "modelNotice": "...模型提示（可能为空）...",
+  "agentRoute": "可选，agent 模式下为 qa 或 code",
+  "improvementOptions": ["可选，agent 模式动态改进项"],
+  "executionReport": {
+    "success": true,
+    "summary": "可选，代码运行/编译检查摘要",
+    "returnCode": 0
+  }
 }
 ```
 
 可能错误码：
 
 - `ERROR_ANALYZE_TEXT_INPUT`
+- `ERROR_ANALYZE`
+
+### 5.3 Agent 解析
+
+客户端发送：
+
+```json
+{
+  "type": "ANALYZE_AGENT",
+  "requestId": "uuid-string",
+  "imageBase64": "可选，图片解析时提供",
+  "text": "可选，文本解析时提供",
+  "prompt": "可选，附加提示",
+  "targetLanguage": "可选，代码路线下语言偏好，如 Python / Java / C++",
+  "routeHint": "可选，客户端本地分类结果 qa 或 code",
+  "improvementRequest": "可选，用户在手机端选择的改进项",
+  "currentText": "可选，当前结果文本，供二次优化使用"
+}
+```
+
+字段说明：
+
+- `imageBase64` 与 `text` 至少提供一个
+- 服务端会先基于 OCR/文本判断路线（`qa` 或 `code`）
+- 若 `routeHint` 传入且值为 `qa|code`，服务端优先采用该路线；否则回退服务端分类
+- 当路线为 `code` 且 `targetLanguage=Python` 时，服务端会尝试本地运行校验
+- `improvementRequest` 存在时，服务端会在当前结果基础上做定向优化
+
+成功返回：
+
+```json
+{
+  "type": "ANALYZE_RESULT",
+  "requestId": "uuid-string",
+  "text": "...Agent 输出...",
+  "ocrText": "...OCR 文本（可能为空）...",
+  "modelNotice": "",
+  "agentRoute": "qa | code",
+  "improvementOptions": [
+    "优化边界条件处理",
+    "优化可读性"
+  ],
+  "executionReport": {
+    "success": true,
+    "summary": "Python 代码运行通过。",
+    "returnCode": 0
+  }
+}
+```
+
+可能错误码：
+
+- `ERROR_ANALYZE_AGENT_INPUT`
+- `ERROR_OCR`
+- `ERROR_OCR_EMPTY`
 - `ERROR_ANALYZE`
 
 ## 6. 剪贴板相关

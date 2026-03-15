@@ -1,4 +1,5 @@
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
@@ -16,6 +17,7 @@ if (hasReleaseKeystore) {
 android {
     namespace = "com.PrepPro.mobile"
     compileSdk = 35
+    ndkVersion = "26.3.11579264"
 
     defaultConfig {
         applicationId = "com.PrepPro.mobile"
@@ -23,6 +25,14 @@ android {
         targetSdk = 35
         versionCode = 3
         versionName = "1.0.3"
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+        externalNativeBuild {
+            cmake {
+                cppFlags += listOf("-std=c++17", "-fexceptions", "-frtti")
+            }
+        }
     }
 
     signingConfigs {
@@ -52,8 +62,18 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
+    }
+    androidResources {
+        noCompress += "gguf"
     }
 }
 

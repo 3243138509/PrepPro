@@ -68,11 +68,13 @@
 - 当 `analysisMode=code` 时，服务端会改用编程题代码生成提示词，而不是问答提示词。
 - ANALYZE_IMAGE 在 OCR 失败/为空时会出现 ERROR_OCR 或 ERROR_OCR_EMPTY（取决于配置）。
 - ANALYZE_RESULT 增加 modelNotice 字段（可为空）。
+- 新增 ANALYZE_AGENT，支持可选 `routeHint`（`qa|code`）用于客户端本地分类提示。
 
 ### 客户端建议
 
 - 解析结果结构按 text + ocrText + modelNotice 读取，modelNotice 允许为空。
 - 如需做编程题，发送 `analysisMode=code`，并显式附带 `targetLanguage`。
+- 使用 Agent 模式时可选发送 `routeHint`；不发送时服务端自动分类，兼容旧客户端。
 
 ## 3) 剪贴板能力
 

@@ -7,6 +7,8 @@ import android.animation.ArgbEvaluator
 import android.animation.ValueAnimator
 import android.content.ContentValues
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -14,6 +16,7 @@ import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.util.Log
 import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -25,6 +28,7 @@ import android.view.WindowManager
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
@@ -39,6 +43,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.viewpager.widget.PagerAdapter
 import androidx.viewpager.widget.ViewPager
+import com.PrepPro.mobile.local.LlamaClassifier
 import com.PrepPro.mobile.net.TcpClient
 import com.PrepPro.mobile.widget.CropEditorView
 import com.google.android.material.card.MaterialCardView
@@ -47,6 +52,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import io.noties.markwon.Markwon
+import org.json.JSONArray
 import org.json.JSONObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -54,12 +60,53 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import kotlin.math.max
 import kotlin.math.min
 
 class MainActivity : AppCompatActivity() {
+    data class ConnectionDiagnosis(
+        val category: String,
+        val brief: String,
+        val detail: String,
+        val isFatal: Boolean,
+    )
+
+    data class ConversationTurn(
+        val id: String,
+        val timestamp: Long,
+        val sourceText: String,
+        val analysisMode: String,
+        val route: String,
+        val targetLanguage: String?,
+        val resultText: String,
+        val ocrText: String,
+        val modelNotice: String,
+        val executionReport: String,
+        val improvementOptions: List<String>,
+    )
+
+    data class ConversationSession(
+        val id: String,
+        val timestamp: Long,
+        var parseState: String,
+        val turns: MutableList<ConversationTurn>,
+    )
 
     companion object {
+        private const val PARSE_STATE_PENDING = "pending"
+        private const val PARSE_STATE_SUCCESS = "success"
+        private const val PARSE_STATE_FAILED = "failed"
+        private const val PARSE_STATE_PROCESSING = "processing"
+        private const val TAG_CONN = "PrepProConnDiag"
+        private const val ANALYSIS_MODE_AGENT = "agent"
         private const val ANALYSIS_MODE_QA = "qa"
         private const val ANALYSIS_MODE_CODE = "code"
         private const val PREVIEW_HIDDEN_NONE = 0
@@ -96,8 +143,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var uploadAnalyzeButton: Button
     private lateinit var realtimeButton: MaterialButton
     private lateinit var analysisText: TextView
+    private lateinit var conversationContainer: ViewGroup
+    private lateinit var ocrPreviewLayout: View
+    private lateinit var ocrPreviewText: TextView
+    private lateinit var ocrToggleButton: MaterialButton
+    private lateinit var historyButton: MaterialButton
     private lateinit var copyAnalysisToPcButton: MaterialButton
     private lateinit var markwon: Markwon
+    private var llamaClassifier: LlamaClassifier? = null
 
     private val prefs by lazy { getSharedPreferences("crop_prefs", MODE_PRIVATE) }
     private val connPrefs by lazy { getSharedPreferences("conn_prefs", MODE_PRIVATE) }
@@ -115,6 +168,10 @@ class MainActivity : AppCompatActivity() {
     private var clipboardJob: Job? = null
     private var knownDisplays: List<TcpClient.DisplayInfo> = emptyList()
     private var latestAnalysisResultText: String = ""
+    private var latestSourceText: String = ""
+    private var activeTargetLanguage: String? = null
+    private val allSessions: MutableList<ConversationSession> = mutableListOf()
+    private var currentSession: ConversationSession? = null
     private var latestClipboardPush: TcpClient.ClipboardPush? = null
     private var clipboardDialog: AlertDialog? = null
     private var pageCaptureRoot: View? = null
@@ -191,7 +248,7 @@ class MainActivity : AppCompatActivity() {
         connectionStatusDot = findViewById(R.id.viewConnectionStatusDot)
 
         statusText = captureRoot.findViewById(R.id.textStatus)
-        parseStateText = captureRoot.findViewById(R.id.textParseState)
+        parseStateText = findViewById(R.id.textParseState)
         cropEditorView = findViewById(R.id.imageResult)
         displaySpinner = captureRoot.findViewById(R.id.spinnerDisplay)
         analysisModeSpinner = captureRoot.findViewById(R.id.spinnerAnalysisMode)
@@ -205,8 +262,22 @@ class MainActivity : AppCompatActivity() {
         uploadAnalyzeButton = findViewById(R.id.buttonUploadAnalyze)
         realtimeButton = captureRoot.findViewById(R.id.buttonRealtime)
         analysisText = analysisRoot.findViewById(R.id.textAnalysis)
+        conversationContainer = analysisRoot.findViewById(R.id.layoutConversationContainer)
+        ocrPreviewLayout = analysisRoot.findViewById(R.id.layoutOcrPreview)
+        ocrPreviewText = analysisRoot.findViewById(R.id.textOcrPreview)
+        ocrToggleButton = analysisRoot.findViewById(R.id.buttonToggleOcr)
+        historyButton = analysisRoot.findViewById(R.id.buttonOpenHistory)
         copyAnalysisToPcButton = analysisRoot.findViewById(R.id.buttonCopyAnalysisToPc)
         markwon = Markwon.create(this)
+        llamaClassifier = try {
+            LlamaClassifier(this)
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w("PrepPro", "LlamaClassifier native lib unavailable", e)
+            null
+        } catch (e: Throwable) {
+            Log.e("PrepPro", "LlamaClassifier init failed", e)
+            null
+        }
         realtimeDefaultTint = realtimeButton.backgroundTintList
         realtimeDefaultStroke = realtimeButton.strokeColor
         setupFloatingPreviewDrag()
@@ -222,6 +293,7 @@ class MainActivity : AppCompatActivity() {
         rememberedEditorState = readEditorStateFromPrefs()
         setupDisplaySpinner(displaySpinner, listOf(TcpClient.DisplayInfo(1, 0, 0, 0, 0)))
         setupAnalysisSelectors()
+        setupAnalysisConversationUi()
 
         setConnected(false)
         applyRealtimeButtonStyle(isRunning = false)
@@ -281,9 +353,10 @@ class MainActivity : AppCompatActivity() {
                     showFloatingPreviewForContent()
                     statusText.text = "截图成功，已沿用上次缩放和裁剪框"
                 } catch (ex: Exception) {
-                    if (isConnectionFatal(ex)) {
+                    val diagnosis = logConnectionDiagnostic("capture", ex)
+                    if (diagnosis.isFatal) {
                         setConnected(false)
-                        statusText.text = "连接失败: ${ex.message}，请重新连接"
+                        statusText.text = "连接失败[${diagnosis.category}]：${diagnosis.brief}，请重新连接"
                     } else {
                         statusText.text = "截图失败: ${ex.message}"
                     }
@@ -402,36 +475,79 @@ class MainActivity : AppCompatActivity() {
 
             lifecycleScope.launch {
                 try {
-                    val result = withContext(Dispatchers.IO) {
-                        TcpClient(host, port).analyzeImage(
-                            analysisBitmap,
-                            buildAnalysisPromptHint(analysisMode),
-                            analysisMode = analysisMode,
-                            targetLanguage = targetLanguage,
-                        )
-                    }
-                    val ocrBlock = if (result.ocrText.isBlank()) {
-                        "(空)"
-                    } else {
-                        result.ocrText
-                    }
-                    val markdown = buildString {
-                        append("## 解析结果\n\n")
-                        append(result.text)
-                        if (result.modelNotice.isNotBlank()) {
-                            append("\n\n> ")
-                            append(result.modelNotice)
+                    // Agent 模式默认使用服务端模型分类（model_profiles 中的模型），提高判断正确性。
+                    // 仅在用户开启「本地分类」且本地模型可用时，才发送 routeHint。
+                    val routeHint = if (analysisMode == ANALYSIS_MODE_AGENT && analysisPrefs.getBoolean("useLocalClassifier", false)) {
+                        withContext(Dispatchers.Default) {
+                            runCatching {
+                                val classifierInput = buildLocalClassifierInput(targetLanguage)
+                                if (classifierInput.isBlank()) null else llamaClassifier?.classify(classifierInput)
+                            }.getOrNull()
                         }
-                        append("\n\n---\n\n")
-                        append("## OCR 预扫描\n\n")
-                        append("```text\n")
-                        append(ocrBlock)
-                        append("\n```")
+                    } else {
+                        null
                     }
-                    renderAnalysisMarkdown(markdown)
+                    val result = withContext(Dispatchers.IO) {
+                        val client = TcpClient(host, port)
+                        if (analysisMode == ANALYSIS_MODE_AGENT) {
+                            client.analyzeAgent(
+                                bitmap = analysisBitmap,
+                                prompt = buildAnalysisPromptHint(analysisMode),
+                                targetLanguage = targetLanguage,
+                                routeHint = routeHint,
+                            )
+                        } else {
+                            client.analyzeImage(
+                                analysisBitmap,
+                                buildAnalysisPromptHint(analysisMode),
+                                analysisMode = analysisMode,
+                                targetLanguage = targetLanguage,
+                            )
+                        }
+                    }
                     latestAnalysisResultText = result.text
+                    latestSourceText = result.ocrText.ifBlank { buildLocalClassifierInput(targetLanguage) }
+                    activeTargetLanguage = targetLanguage
+                    ocrPreviewText.text = result.ocrText.ifBlank { "(空)" }
+                    ocrPreviewLayout.visibility = View.GONE
+                    ocrToggleButton.text = "OCR 预扫描（点击展开）"
+
+                    val turn = ConversationTurn(
+                        id = "turn-${System.currentTimeMillis()}",
+                        timestamp = System.currentTimeMillis(),
+                        sourceText = latestSourceText,
+                        analysisMode = analysisMode,
+                        route = result.agentRoute.ifBlank { analysisMode },
+                        targetLanguage = targetLanguage,
+                        resultText = result.text,
+                        ocrText = result.ocrText,
+                        modelNotice = result.modelNotice,
+                        executionReport = result.executionReport,
+                        improvementOptions = result.improvementOptions,
+                    )
+                    val newSession = ConversationSession(
+                        id = "session-${System.currentTimeMillis()}",
+                        timestamp = System.currentTimeMillis(),
+                        parseState = PARSE_STATE_SUCCESS,
+                        turns = mutableListOf(turn),
+                    )
+                    allSessions.add(newSession)
+                    currentSession = newSession
+                    conversationContainer.removeAllViews()
+                    persistConversationHistory()
+                    appendConversationTurn(
+                        turn,
+                        showOptimize = analysisMode == ANALYSIS_MODE_AGENT &&
+                            turn.route.equals(ANALYSIS_MODE_CODE, ignoreCase = true),
+                    )
                     statusText.text = if (result.modelNotice.isNotBlank()) {
                         "解析完成，${result.modelNotice}"
+                    } else if (analysisMode == ANALYSIS_MODE_AGENT) {
+                        if (result.agentRoute.equals(ANALYSIS_MODE_CODE, ignoreCase = true)) {
+                            "Agent 代码解析完成${targetLanguage?.let { "，$it" } ?: ""}"
+                        } else {
+                            "Agent 问答解析完成"
+                        }
                     } else if (analysisMode == ANALYSIS_MODE_CODE) {
                         "代码解析完成${targetLanguage?.let { "，$it" } ?: ""}"
                     } else {
@@ -443,7 +559,6 @@ class MainActivity : AppCompatActivity() {
                     setParseStateSuccess()
                     mainPager.currentItem = 1
                 } catch (ex: Exception) {
-                    renderAnalysisMarkdown("解析结果: (失败)")
                     latestAnalysisResultText = ""
                     statusText.text = "上传/解析失败: ${ex.message}"
                     setParseStateFailed()
@@ -454,6 +569,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         autoReconnectIfNeeded()
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching { llamaClassifier?.tryDownloadEnhancedModel() }
+        }
     }
 
     override fun onStart() {
@@ -470,6 +588,11 @@ class MainActivity : AppCompatActivity() {
         stopClipboardSubscription()
         persistEditorState()
         persistFloatingPreviewPosition()
+    }
+
+    override fun onDestroy() {
+        llamaClassifier?.release()
+        super.onDestroy()
     }
 
     private fun setupPager() {
@@ -512,7 +635,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupAnalysisSelectors() {
-        val modes = listOf("问答模式", "代码模式")
+        val modes = listOf("Agent模式", "问答模式", "代码模式")
         val languages = listOf(
             "Python",
             "Java",
@@ -534,14 +657,30 @@ class MainActivity : AppCompatActivity() {
 
         val savedMode = analysisPrefs.getString("analysisMode", ANALYSIS_MODE_QA).orEmpty()
         val savedLanguage = analysisPrefs.getString("targetLanguage", "Python").orEmpty()
-        analysisModeSpinner.setSelection(if (savedMode == ANALYSIS_MODE_CODE) 1 else 0)
+        val savedModeIndex = when (savedMode) {
+            ANALYSIS_MODE_AGENT -> 0
+            ANALYSIS_MODE_CODE -> 2
+            else -> 1
+        }
+        analysisModeSpinner.setSelection(savedModeIndex)
+
+        requireNotNull(pageCaptureRoot).findViewById<androidx.appcompat.widget.SwitchCompat>(R.id.switchUseLocalClassifier)?.let { switchUseLocalClassifier ->
+            switchUseLocalClassifier.isChecked = analysisPrefs.getBoolean("useLocalClassifier", false)
+            switchUseLocalClassifier.setOnCheckedChangeListener { _, isChecked ->
+                analysisPrefs.edit().putBoolean("useLocalClassifier", isChecked).apply()
+            }
+        }
         val languageIndex = languages.indexOfFirst { it.equals(savedLanguage, ignoreCase = true) }
         targetLanguageSpinner.setSelection(if (languageIndex >= 0) languageIndex else 0)
         updateTargetLanguageVisibility(savedMode)
 
         analysisModeSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val mode = if (position == 1) ANALYSIS_MODE_CODE else ANALYSIS_MODE_QA
+                val mode = when (position) {
+                    0 -> ANALYSIS_MODE_AGENT
+                    2 -> ANALYSIS_MODE_CODE
+                    else -> ANALYSIS_MODE_QA
+                }
                 val language = currentTargetLanguage()
                 playSelectorConfirmAnimation(analysisModeSpinner)
                 updateTargetLanguageVisibility(mode, animated = true)
@@ -565,18 +704,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun currentAnalysisMode(): String {
-        return if (analysisModeSpinner.selectedItemPosition == 1) ANALYSIS_MODE_CODE else ANALYSIS_MODE_QA
+        return when (analysisModeSpinner.selectedItemPosition) {
+            0 -> ANALYSIS_MODE_AGENT
+            2 -> ANALYSIS_MODE_CODE
+            else -> ANALYSIS_MODE_QA
+        }
     }
 
     private fun currentTargetLanguage(): String? {
-        if (currentAnalysisMode() != ANALYSIS_MODE_CODE) {
+        val mode = currentAnalysisMode()
+        if (mode != ANALYSIS_MODE_CODE && mode != ANALYSIS_MODE_AGENT) {
             return null
         }
         return targetLanguageSpinner.selectedItem?.toString()?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     private fun updateTargetLanguageVisibility(mode: String, animated: Boolean = true) {
-        val shouldShow = mode == ANALYSIS_MODE_CODE
+        val shouldShow = mode == ANALYSIS_MODE_CODE || mode == ANALYSIS_MODE_AGENT
         if (shouldShow) {
             expandTargetLanguageLayout(animated)
         } else {
@@ -751,9 +895,279 @@ class MainActivity : AppCompatActivity() {
     private fun buildAnalysisPromptHint(mode: String): String {
         return if (mode == ANALYSIS_MODE_CODE) {
             "请把最终代码放在 Markdown 代码块中输出。"
+        } else if (mode == ANALYSIS_MODE_AGENT) {
+            "请先判断题目是问答还是代码，并按最合适方式输出。"
         } else {
             ""
         }
+    }
+
+    private fun buildLocalClassifierInput(targetLanguage: String?): String {
+        val parts = mutableListOf<String>()
+        latestClipboardPush?.text?.trim()?.takeIf { it.isNotEmpty() }?.let(parts::add)
+        latestAnalysisResultText.trim().takeIf { it.isNotEmpty() }?.let(parts::add)
+        targetLanguage?.trim()?.takeIf { it.isNotEmpty() }?.let { parts.add("候选代码语言: $it") }
+        if (parts.isEmpty()) {
+            // No local OCR is available on device yet; keep a conservative hint.
+            return ""
+        }
+        return parts.joinToString(separator = "\n\n")
+    }
+
+    private fun parseTurnFromJson(obj: JSONObject): ConversationTurn {
+        val options = mutableListOf<String>()
+        val optionsArr = obj.optJSONArray("improvementOptions")
+        if (optionsArr != null) {
+            for (j in 0 until optionsArr.length()) {
+                val item = optionsArr.optString(j).trim()
+                if (item.isNotEmpty()) options.add(item)
+            }
+        }
+        return ConversationTurn(
+            id = obj.optString("id", ""),
+            timestamp = obj.optLong("timestamp", System.currentTimeMillis()),
+            sourceText = obj.optString("sourceText", ""),
+            analysisMode = obj.optString("analysisMode", ANALYSIS_MODE_QA),
+            route = obj.optString("route", ""),
+            targetLanguage = obj.optString("targetLanguage", "").ifBlank { null },
+            resultText = obj.optString("resultText", ""),
+            ocrText = obj.optString("ocrText", ""),
+            modelNotice = obj.optString("modelNotice", ""),
+            executionReport = obj.optString("executionReport", ""),
+            improvementOptions = options,
+        )
+    }
+
+    private fun setupAnalysisConversationUi() {
+        try {
+            val raw = analysisPrefs.getString("conversationHistory", "[]").orEmpty()
+            allSessions.clear()
+            currentSession = null
+            runCatching {
+                val arr = JSONArray(raw)
+                if (arr.length() == 0) return@runCatching
+                val first = arr.optJSONObject(0)
+                if (first != null && first.has("turns")) {
+                    for (i in 0 until arr.length()) {
+                        val sobj = arr.optJSONObject(i) ?: continue
+                        val turnsArr = sobj.optJSONArray("turns") ?: continue
+                        val turns = mutableListOf<ConversationTurn>()
+                        for (j in 0 until turnsArr.length()) {
+                            val t = turnsArr.optJSONObject(j)?.let { parseTurnFromJson(it) } ?: continue
+                            turns.add(t)
+                        }
+                        if (turns.isNotEmpty()) {
+                            allSessions.add(
+                                ConversationSession(
+                                    id = sobj.optString("id", "session-$i"),
+                                    timestamp = sobj.optLong("timestamp", System.currentTimeMillis()),
+                                    parseState = sobj.optString("parseState", PARSE_STATE_SUCCESS),
+                                    turns = turns,
+                                )
+                            )
+                        }
+                    }
+                } else {
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.optJSONObject(i) ?: continue
+                        val turn = parseTurnFromJson(obj)
+                        allSessions.add(
+                            ConversationSession(
+                                id = "session-${turn.timestamp}",
+                                timestamp = turn.timestamp,
+                                parseState = PARSE_STATE_SUCCESS,
+                                turns = mutableListOf(turn),
+                            )
+                        )
+                    }
+                }
+            }
+            currentSession = allSessions.lastOrNull()
+            currentSession?.let { session ->
+                session.turns.firstOrNull()?.let { first ->
+                    latestSourceText = first.sourceText
+                    activeTargetLanguage = first.targetLanguage
+                    ocrPreviewText.text = first.ocrText.ifBlank { "(空)" }
+                }
+                latestAnalysisResultText = session.turns.lastOrNull()?.resultText ?: ""
+            }
+
+            ocrPreviewLayout.visibility = View.GONE
+        } catch (e: Exception) {
+            Log.e("PrepPro", "setupAnalysisConversationUi failed", e)
+            allSessions.clear()
+            currentSession = null
+        }
+        ocrToggleButton.setOnClickListener {
+            val expanded = ocrPreviewLayout.visibility == View.VISIBLE
+            ocrPreviewLayout.visibility = if (expanded) View.GONE else View.VISIBLE
+            ocrToggleButton.text = if (expanded) "OCR 预扫描（点击展开）" else "OCR 预扫描（点击收起）"
+        }
+        historyButton.setOnClickListener { showConversationHistoryDialog() }
+        renderConversationTurns()
+        currentSession?.let { applyParseStateDisplay(it.parseState) }
+    }
+
+    private fun showConversationHistoryDialog() {
+        if (allSessions.isEmpty()) {
+            Toast.makeText(this, "暂无历史对话", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val sdf = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+        val labels = allSessions.map { session ->
+            val first = session.turns.firstOrNull()
+            val kind = if (first?.route.equals(ANALYSIS_MODE_CODE, ignoreCase = true)) "代码" else "问答"
+            "${sdf.format(Date(session.timestamp))}  $kind  (${session.turns.size} 条)"
+        }.toTypedArray()
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("选择历史主题")
+            .setItems(labels) { _, which ->
+                val session = allSessions.getOrNull(which) ?: return@setItems
+                currentSession = session
+                applyParseStateDisplay(session.parseState)
+                val first = session.turns.firstOrNull()
+                val last = session.turns.lastOrNull()
+                if (first != null) {
+                    activeTargetLanguage = first.targetLanguage
+                    latestSourceText = first.sourceText
+                    ocrPreviewText.text = first.ocrText.ifBlank { "(空)" }
+                }
+                latestAnalysisResultText = last?.resultText ?: ""
+                conversationContainer.removeAllViews()
+                session.turns.forEach { turn ->
+                    appendConversationTurn(
+                        turn,
+                        showOptimize = turn.route.equals(ANALYSIS_MODE_CODE, ignoreCase = true) && turn.improvementOptions.isNotEmpty(),
+                    )
+                }
+                mainPager.currentItem = 1
+            }
+            .setNegativeButton("取消", null)
+            .show()
+        animateStyledDialogShow(dialog)
+    }
+
+    private fun persistConversationHistory() {
+        val arr = JSONArray()
+        allSessions.takeLast(20).forEach { session ->
+            val sobj = JSONObject()
+            sobj.put("id", session.id)
+            sobj.put("timestamp", session.timestamp)
+            sobj.put("parseState", session.parseState)
+            val turnsArr = JSONArray()
+            session.turns.takeLast(20).forEach { turn ->
+                val obj = JSONObject()
+                obj.put("id", turn.id)
+                obj.put("timestamp", turn.timestamp)
+                obj.put("sourceText", turn.sourceText)
+                obj.put("analysisMode", turn.analysisMode)
+                obj.put("route", turn.route)
+                obj.put("targetLanguage", turn.targetLanguage ?: "")
+                obj.put("resultText", turn.resultText)
+                obj.put("ocrText", turn.ocrText)
+                obj.put("modelNotice", turn.modelNotice)
+                obj.put("executionReport", turn.executionReport)
+                val opts = JSONArray()
+                turn.improvementOptions.forEach { opts.put(it) }
+                obj.put("improvementOptions", opts)
+                turnsArr.put(obj)
+            }
+            sobj.put("turns", turnsArr)
+            arr.put(sobj)
+        }
+        analysisPrefs.edit().putString("conversationHistory", arr.toString()).apply()
+    }
+
+    private fun renderConversationTurns() {
+        conversationContainer.removeAllViews()
+        currentSession?.turns?.forEach { turn ->
+            appendConversationTurn(turn, showOptimize = turn.route.equals(ANALYSIS_MODE_CODE, ignoreCase = true) && turn.improvementOptions.isNotEmpty())
+        }
+    }
+
+    private fun appendConversationTurn(turn: ConversationTurn, showOptimize: Boolean) {
+        val card = MaterialCardView(this).apply {
+            radius = dpToPx(14f).toFloat()
+            cardElevation = dpToPx(2f).toFloat()
+            strokeWidth = dpToPx(1f)
+            strokeColor = ContextCompat.getColor(this@MainActivity, R.color.surface_stroke)
+            setCardBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.surface_white))
+            layoutParams = ViewGroup.MarginLayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topMargin = dpToPx(8f)
+            }
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpToPx(12f), dpToPx(12f), dpToPx(12f), dpToPx(12f))
+        }
+
+        val content = TextView(this).apply {
+            setTextColor(ContextCompat.getColor(this@MainActivity, R.color.ink_900))
+            textSize = 14f
+        }
+        val markdown = buildString {
+            append(turn.resultText)
+            if (turn.modelNotice.isNotBlank()) append("\n\n> ${turn.modelNotice}")
+            if (turn.executionReport.isNotBlank()) append("\n\n> ${turn.executionReport}")
+        }
+        markwon.setMarkdown(content, markdown)
+        container.addView(content)
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = ViewGroup.MarginLayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topMargin = dpToPx(10f)
+            }
+        }
+        val copyBtn = MaterialButton(this).apply {
+            text = "复制文本"
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            setOnClickListener { copyToSystemClipboard(turn.resultText) }
+        }
+        row.addView(copyBtn)
+        container.addView(row)
+
+        if (showOptimize && turn.improvementOptions.isNotEmpty()) {
+            val title = TextView(this).apply {
+                text = "优化选项"
+                setTextColor(ContextCompat.getColor(this@MainActivity, R.color.ink_700))
+                textSize = 12f
+                setPadding(0, dpToPx(8f), 0, dpToPx(6f))
+            }
+            container.addView(title)
+            turn.improvementOptions.forEach { option ->
+                val btn = MaterialButton(this).apply {
+                    text = option
+                    layoutParams = ViewGroup.MarginLayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ).apply { topMargin = dpToPx(6f) }
+                    setOnClickListener {
+                        val host = currentHost()
+                        val port = currentPort()
+                        applyAgentImprovementFromTurn(turn, host, port, option)
+                    }
+                }
+                container.addView(btn)
+            }
+        }
+
+        card.addView(container)
+        conversationContainer.addView(card)
+    }
+
+    private fun copyToSystemClipboard(text: String) {
+        val manager = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        manager.setPrimaryClip(ClipData.newPlainText("preppro_result", text))
+        Toast.makeText(this, "已复制到手机剪贴板", Toast.LENGTH_SHORT).show()
     }
 
     private fun startRealtime(
@@ -783,9 +1197,10 @@ class MainActivity : AppCompatActivity() {
                     showFloatingPreviewForContent()
                 } catch (ex: Exception) {
                     consecutiveFailures += 1
-                    if (isConnectionFatal(ex) && consecutiveFailures >= 2) {
+                    val diagnosis = logConnectionDiagnostic("realtime", ex)
+                    if (diagnosis.isFatal && consecutiveFailures >= 2) {
                         setConnected(false)
-                        statusText.text = "实时预览失败: ${ex.message}，请重新连接"
+                        statusText.text = "实时预览失败[${diagnosis.category}]：${diagnosis.brief}，请重新连接"
                         break
                     }
                     statusText.text = "实时预览短暂失败(${consecutiveFailures})，正在重试..."
@@ -909,8 +1324,18 @@ class MainActivity : AppCompatActivity() {
     private fun parseAndConnectFromQR(qrContent: String) {
         try {
             val json = JSONObject(qrContent)
-            val host = json.getString("ip")
-            val port = json.getInt("port")
+            val host = json.optString("ip").trim().ifEmpty {
+                json.optString("host").trim()
+            }
+            val port = json.optInt("port", 5001)
+            if (host.isBlank()) {
+                Toast.makeText(this, "二维码缺少服务器地址(ip/host)", Toast.LENGTH_LONG).show()
+                return
+            }
+            if (port !in 1..65535) {
+                Toast.makeText(this, "二维码端口无效: $port", Toast.LENGTH_LONG).show()
+                return
+            }
             persistConnectionInputs(host, port.toString())
             updateConnectedHostBadge(host, port)
             connectToServer(host, port, autoReconnect = false)
@@ -1036,12 +1461,13 @@ class MainActivity : AppCompatActivity() {
                     "连接成功，可截图或开始实时预览"
                 }
             } catch (ex: Exception) {
+                val diagnosis = logConnectionDiagnostic("connect_to_server", ex)
                 setConnected(false)
                 applyConnectionIndicator(CONNECTION_STATE_FAILED)
                 statusText.text = if (autoReconnect) {
-                    "自动恢复连接失败: ${ex.message}"
+                    "自动恢复连接失败[${diagnosis.category}]：${diagnosis.brief}"
                 } else {
-                    "失败: ${ex.message}"
+                    "连接失败[${diagnosis.category}]：${diagnosis.brief}"
                 }
             } finally {
                 reconnectJob = null
@@ -1941,24 +2367,188 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun applyAgentImprovementFromTurn(
+        turn: ConversationTurn,
+        host: String,
+        port: Int,
+        selectedOption: String,
+    ) {
+        uploadAnalyzeButton.isEnabled = false
+        statusText.text = "正在按改进项优化: $selectedOption"
+        setParseStateProcessing()
+
+        lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    TcpClient(host, port).analyzeAgentText(
+                        sourceText = turn.sourceText,
+                        prompt = "请按用户选择进行定向优化。",
+                        targetLanguage = turn.targetLanguage ?: activeTargetLanguage,
+                        improvementRequest = selectedOption,
+                        currentText = turn.resultText,
+                        routeHint = ANALYSIS_MODE_CODE,
+                    )
+                }
+                latestAnalysisResultText = result.text
+                ocrPreviewText.text = result.ocrText.ifBlank { turn.ocrText.ifBlank { "(空)" } }
+                val optimizedTurn = ConversationTurn(
+                    id = "turn-${System.currentTimeMillis()}",
+                    timestamp = System.currentTimeMillis(),
+                    sourceText = turn.sourceText,
+                    analysisMode = ANALYSIS_MODE_AGENT,
+                    route = ANALYSIS_MODE_CODE,
+                    targetLanguage = turn.targetLanguage ?: activeTargetLanguage,
+                    resultText = result.text,
+                    ocrText = result.ocrText.ifBlank { turn.ocrText },
+                    modelNotice = result.modelNotice,
+                    executionReport = result.executionReport,
+                    improvementOptions = result.improvementOptions,
+                )
+                val session = currentSession ?: run {
+                    val newSession = ConversationSession(
+                        id = "session-${System.currentTimeMillis()}",
+                        timestamp = System.currentTimeMillis(),
+                        parseState = PARSE_STATE_SUCCESS,
+                        turns = mutableListOf(),
+                    )
+                    allSessions.add(newSession)
+                    currentSession = newSession
+                    newSession
+                }
+                session.turns.add(optimizedTurn)
+                session.parseState = PARSE_STATE_SUCCESS
+                persistConversationHistory()
+                appendConversationTurn(optimizedTurn, showOptimize = true)
+                statusText.text = "Agent 优化完成"
+                setParseStateSuccess()
+                mainPager.currentItem = 1
+            } catch (ex: Exception) {
+                statusText.text = "Agent 优化失败: ${ex.message}"
+                setParseStateFailed()
+            } finally {
+                uploadAnalyzeButton.isEnabled = isConnected
+            }
+        }
+    }
+
     private fun setParseStateProcessing() {
         parseStateText.text = "解析状态: 解析中"
     }
 
     private fun setParseStateSuccess() {
         parseStateText.text = "解析状态: 解析成功"
+        currentSession?.parseState = PARSE_STATE_SUCCESS
     }
 
     private fun setParseStateFailed() {
         parseStateText.text = "解析状态: 解析失败"
     }
 
-    private fun isConnectionFatal(ex: Exception): Boolean {
-        val message = ex.message?.lowercase().orEmpty()
-        return message.contains("auth") ||
-            message.contains("connection") ||
-            message.contains("timeout") ||
-            message.contains("socket")
+    private fun applyParseStateDisplay(state: String) {
+        parseStateText.text = when (state) {
+            PARSE_STATE_SUCCESS -> "解析状态: 解析成功"
+            PARSE_STATE_FAILED -> "解析状态: 解析失败"
+            PARSE_STATE_PROCESSING -> "解析状态: 解析中"
+            else -> "解析状态: 待解析"
+        }
+    }
+
+    private fun diagnoseConnectionError(ex: Throwable): ConnectionDiagnosis {
+        val allText = buildThrowableMessage(ex).lowercase()
+        val root = rootCause(ex)
+
+        return when {
+            root is UnknownHostException ||
+                allText.contains("unable to resolve host") ||
+                allText.contains("unknown host") ||
+                allText.contains("dns") -> {
+                ConnectionDiagnosis(
+                    category = "DNS失败",
+                    brief = "无法解析服务器地址",
+                    detail = "请确认手机与电脑在同一网络，并检查二维码中的 IP 是否正确。",
+                    isFatal = true,
+                )
+            }
+
+            root is SocketTimeoutException ||
+                allText.contains("timed out") ||
+                allText.contains("timeout") -> {
+                ConnectionDiagnosis(
+                    category = "超时",
+                    brief = "连接或响应超时",
+                    detail = "请检查电脑端服务是否运行、防火墙放行 5001 端口，或当前网络是否拥塞。",
+                    isFatal = true,
+                )
+            }
+
+            allText.contains("auth") ||
+                allText.contains("error_auth_required") ||
+                allText.contains("auth failed") -> {
+                ConnectionDiagnosis(
+                    category = "鉴权失败",
+                    brief = "鉴权未通过",
+                    detail = "请确认连接建立后先发送 AUTH，且客户端/服务端协议版本一致。",
+                    isFatal = true,
+                )
+            }
+
+            root is ConnectException ||
+                root is NoRouteToHostException ||
+                root is SocketException ||
+                allText.contains("connection refused") ||
+                allText.contains("broken pipe") ||
+                allText.contains("server error") ||
+                allText.contains("socket closed") -> {
+                ConnectionDiagnosis(
+                    category = "服务端拒绝",
+                    brief = "服务器不可达或连接被拒绝",
+                    detail = "请确认电脑端程序在运行、端口为 5001、且未被系统防火墙拦截。",
+                    isFatal = true,
+                )
+            }
+
+            else -> {
+                ConnectionDiagnosis(
+                    category = "未知网络错误",
+                    brief = ex.message?.ifBlank { "未知错误" } ?: "未知错误",
+                    detail = "请查看日志并重试，必要时重新扫码连接。",
+                    isFatal = false,
+                )
+            }
+        }
+    }
+
+    private fun buildThrowableMessage(ex: Throwable): String {
+        val sb = StringBuilder()
+        var cur: Throwable? = ex
+        while (cur != null) {
+            val msg = cur.message
+            if (!msg.isNullOrBlank()) {
+                if (sb.isNotEmpty()) sb.append(" | ")
+                sb.append(msg)
+            }
+            cur = cur.cause
+        }
+        return sb.toString()
+    }
+
+    private fun rootCause(ex: Throwable): Throwable {
+        var cur: Throwable = ex
+        while (cur.cause != null) {
+            cur = cur.cause!!
+        }
+        return cur
+    }
+
+    private fun logConnectionDiagnostic(stage: String, ex: Throwable): ConnectionDiagnosis {
+        val diagnosis = diagnoseConnectionError(ex)
+        val detail = buildThrowableMessage(ex)
+        Log.e(
+            TAG_CONN,
+            "stage=$stage category=${diagnosis.category} brief=${diagnosis.brief} detail=${diagnosis.detail} raw=$detail",
+            ex,
+        )
+        return diagnosis
     }
 
     private fun renderAnalysisMarkdown(markdown: String) {

@@ -5,6 +5,9 @@
 android-app/build/
 android-app/app/build/
 android-app/.gradle/
+android-app/app/.cxx/
+android-app/build/reports/
+android-app/app/src/main/cpp/third_party/
 
 # Android local machine config
 android-app/local.properties
@@ -34,3 +37,6 @@ docker/
 
 windows-server/installer/bundled-python/
 windows-server/installer/*.exe
+
+model/
+

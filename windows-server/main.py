@@ -44,6 +44,21 @@ logging.basicConfig(
 _clipboard_suppress_lock = threading.Lock()
 _clipboard_suppressed_text: str | None = None
 _stop_event = threading.Event()
+_agent_analyzer = None
+
+
+def _get_agent_analyzer():
+    global _agent_analyzer
+    if _agent_analyzer is not None:
+        return _agent_analyzer
+    try:
+        from agent.agent_service import analyze_agent_text as _analyze_agent_text
+    except Exception as exc:
+        raise RuntimeError(
+            "Agent 模块不可用：请检查 windows-server 依赖是否完整（langchain/langchain-openai）"
+        ) from exc
+    _agent_analyzer = _analyze_agent_text
+    return _agent_analyzer
 
 
 def _normalize_clipboard_text(text: str | None) -> str | None:
@@ -328,6 +343,118 @@ def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
                     )
                 except Exception as exc:
                     logging.exception("analyze text failed")
+                    send_frame(
+                        conn,
+                        {
+                            "type": "ERROR",
+                            "requestId": request_id,
+                            "code": "ERROR_ANALYZE",
+                            "message": str(exc),
+                        },
+                    )
+                continue
+
+            if msg_type == "ANALYZE_AGENT":
+                request_id = msg.get("requestId")
+                image_base64 = str(msg.get("imageBase64", ""))
+                text_content = str(msg.get("text", ""))
+                prompt = str(msg.get("prompt", "")).strip()
+                target_language = str(msg.get("targetLanguage", "")).strip()
+                improvement_request = str(msg.get("improvementRequest", "")).strip()
+                current_text = str(msg.get("currentText", "")).strip()
+                route_hint = str(msg.get("routeHint", "")).strip().lower()
+
+                if not image_base64 and not text_content.strip():
+                    send_frame(
+                        conn,
+                        {
+                            "type": "ERROR",
+                            "requestId": request_id,
+                            "code": "ERROR_ANALYZE_AGENT_INPUT",
+                            "message": "imageBase64/text is empty",
+                        },
+                    )
+                    continue
+
+                ocr_text = ""
+                source_text = text_content.strip()
+
+                if not source_text:
+                    if config.OCR_ENABLED:
+                        try:
+                            ocr_scan = scan_image_base64(image_base64)
+                            ocr_text = ocr_scan.text
+                        except Exception as exc:
+                            logging.exception("agent ocr pre-scan failed")
+                            send_frame(
+                                conn,
+                                {
+                                    "type": "ERROR",
+                                    "requestId": request_id,
+                                    "code": "ERROR_OCR",
+                                    "message": str(exc),
+                                },
+                            )
+                            continue
+
+                        if config.OCR_REQUIRED and not ocr_text:
+                            send_frame(
+                                conn,
+                                {
+                                    "type": "ERROR",
+                                    "requestId": request_id,
+                                    "code": "ERROR_OCR_EMPTY",
+                                    "message": "ocr text is empty; image blocked before upload",
+                                },
+                            )
+                            continue
+                    source_text = ocr_text
+
+                if prompt:
+                    source_text = f"{source_text}\n\n额外要求：\n{prompt}".strip()
+                if not source_text:
+                    send_frame(
+                        conn,
+                        {
+                            "type": "ERROR",
+                            "requestId": request_id,
+                            "code": "ERROR_ANALYZE_AGENT_INPUT",
+                            "message": "agent source text is empty",
+                        },
+                    )
+                    continue
+
+                try:
+                    analyze_agent_text = _get_agent_analyzer()
+                    result = analyze_agent_text(
+                        source_text,
+                        target_language=target_language or None,
+                        improvement_request=improvement_request or None,
+                        current_text=current_text or None,
+                        route_hint=route_hint or None,
+                    )
+                    execution_report = None
+                    if result.execution_report is not None:
+                        execution_report = {
+                            "success": result.execution_report.success,
+                            "summary": result.execution_report.summary,
+                            "returnCode": result.execution_report.return_code,
+                        }
+                    send_frame(
+                        conn,
+                        {
+                            "type": "ANALYZE_RESULT",
+                            "requestId": request_id,
+                            "text": result.text,
+                            "ocrText": ocr_text,
+                            "modelNotice": result.model_notice,
+                            "agentRoute": result.route,
+                            "improvementOptions": result.improvement_options,
+                            "executionReport": execution_report,
+                        },
+                    )
+                except Exception as exc:
+                    logging.exception("analyze agent failed")
                     send_frame(
                         conn,
                         {
