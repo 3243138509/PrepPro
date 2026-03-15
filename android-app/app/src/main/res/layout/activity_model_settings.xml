@@ -1,32 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
-    android:background="@drawable/bg_app_gradient">
+    android:id="@+id/rootLayoutModel"
+    android:orientation="vertical"
+    android:padding="16dp">
 
+    <!-- Header Container - Change layout_marginTop here to adjust pull-down height -->
     <LinearLayout
+        android:id="@+id/headerContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:layout_marginTop="40dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingBottom="20dp">
+
+        <ImageButton
+            android:id="@+id/buttonBack"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_revert"
+            android:tint="@color/ink_900" />
 
         <TextView
-            android:layout_width="wrap_content"
+            android:id="@+id/textTitle"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:layout_weight="1"
+            android:fontFamily="sans-serif-medium"
             android:text="模型设置"
-            android:textSize="28sp"
-            android:textStyle="bold"
-            android:textColor="@color/ink_900" />
+            android:textColor="@color/ink_900"
+            android:textSize="22sp" />
+    </LinearLayout>
 
-        <TextView
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="添加多个 MODEL_API_URL / MODEL_API_KEY / MODEL_NAME"
-            android:textColor="@color/ink_600"
-            android:textSize="13sp" />
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:text="添加多个 MODEL_API_URL / MODEL_API_KEY / MODEL_NAME"
+                android:textColor="@color/ink_600"
+                android:textSize="13sp" />
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -47,8 +76,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:hint="MODEL_API_URL"
-                    app:boxBackgroundMode="filled"
-                    app:boxStrokeColor="@color/accent_teal">
+                    app:boxBackgroundMode="filled">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/inputModelApiUrl"
@@ -62,8 +90,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
                     android:hint="MODEL_API_KEY"
-                    app:boxBackgroundMode="filled"
-                    app:boxStrokeColor="@color/accent_teal">
+                    app:boxBackgroundMode="filled">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/inputModelApiKey"
@@ -77,8 +104,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
                     android:hint="MODEL_NAME"
-                    app:boxBackgroundMode="filled"
-                    app:boxStrokeColor="@color/accent_teal">
+                    app:boxBackgroundMode="filled">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/inputModelName"
@@ -180,4 +206,5 @@
         </com.google.android.material.card.MaterialCardView>
 
     </LinearLayout>
-</ScrollView>
+    </ScrollView>
+</LinearLayout>

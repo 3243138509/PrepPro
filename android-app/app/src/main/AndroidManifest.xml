@@ -16,6 +16,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PrepPro">
         <activity
+            android:name=".ThemeSettingsActivity"
+            android:exported="false"
+            android:label="主题设置" />
+        <activity
             android:name=".ModelSettingsActivity"
             android:exported="false"
             android:windowSoftInputMode="stateAlwaysHidden|adjustPan" />

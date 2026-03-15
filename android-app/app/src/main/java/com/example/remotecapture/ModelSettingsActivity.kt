@@ -1,36 +1,47 @@
 package com.PrepPro.mobile
 
+import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.PrepPro.mobile.net.TcpClient
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class ModelSettingsActivity : AppCompatActivity() {
 
+    private val themePrefs by lazy { getSharedPreferences("theme_prefs", Context.MODE_PRIVATE) }
     private lateinit var inputApiUrl: EditText
     private lateinit var inputApiKey: EditText
     private lateinit var inputModelName: EditText
     private lateinit var profilesSpinner: Spinner
     private lateinit var statusText: TextView
-    private lateinit var detectButton: Button
-    private lateinit var addButton: Button
-    private lateinit var useSelectedButton: Button
-    private lateinit var deleteSelectedButton: Button
-    private lateinit var batchDeleteButton: Button
+    private lateinit var detectButton: MaterialButton
+    private lateinit var addButton: MaterialButton
+    private lateinit var useSelectedButton: MaterialButton
+    private lateinit var deleteSelectedButton: MaterialButton
+    private lateinit var batchDeleteButton: MaterialButton
 
     private var host: String = ""
     private var port: Int = 5001
@@ -40,6 +51,10 @@ class ModelSettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_model_settings)
+
+        findViewById<ImageButton>(R.id.buttonBack).setOnClickListener {
+            finishAfterTransition()
+        }
 
         host = intent.getStringExtra("host")?.trim().orEmpty()
         port = intent.getIntExtra("port", 5001)
@@ -78,6 +93,100 @@ class ModelSettingsActivity : AppCompatActivity() {
         setupButtonAnimations()
 
         loadSettings()
+        
+        applyThemeSettings()
+    }
+
+    private fun applyThemeSettings() {
+        val followSystem = themePrefs.getBoolean("follow_system", true)
+        val isDarkMode = themePrefs.getBoolean("is_dark_mode", false)
+        val themeIndex = themePrefs.getInt("theme_index", 0)
+
+        // Dark mode handling
+        if (followSystem) {
+            AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+        } else {
+            AppCompatDelegate.setDefaultNightMode(
+                if (isDarkMode) AppCompatDelegate.MODE_NIGHT_YES
+                else AppCompatDelegate.MODE_NIGHT_NO
+            )
+        }
+
+        // Apply theme color
+        val primaryColors = listOf("#0CA7A5", "#3949AB", "#2E7D32", "#D81B60", "#E65100", "#7B1FA2", "#424242", "#FF8F00")
+        val backgroundColors = listOf("#D6F1EF", "#E8EAF6", "#E8F5E9", "#FCE4EC", "#FFF3E0", "#F3E5F5", "#F5F5F5", "#FFF8E1")
+        val primaryColor = Color.parseColor(primaryColors.getOrNull(themeIndex) ?: "#0CA7A5")
+        val backgroundColor = Color.parseColor(backgroundColors.getOrNull(themeIndex) ?: "#D6F1EF")
+
+        // Apply background to root
+        findViewById<View>(R.id.rootLayoutModel)?.let { root ->
+            root.background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(backgroundColor, Color.WHITE)
+            )
+        }
+
+        // Update title
+        findViewById<TextView>(R.id.textTitle)?.setTextColor(Color.parseColor("#1A1A1A"))
+
+        // Apply directly to buttons to be 100% sure
+        val colorList = ColorStateList.valueOf(primaryColor)
+        if (::addButton.isInitialized) {
+            addButton.backgroundTintList = colorList
+            addButton.setTextColor(Color.WHITE)
+        }
+
+        val secondaryButtons = listOfNotNull(
+            if (::detectButton.isInitialized) detectButton else null,
+            if (::useSelectedButton.isInitialized) useSelectedButton else null,
+            if (::deleteSelectedButton.isInitialized) deleteSelectedButton else null,
+            if (::batchDeleteButton.isInitialized) batchDeleteButton else null
+        )
+
+        secondaryButtons.forEach { btn ->
+            btn.strokeColor = colorList
+            btn.setTextColor(primaryColor)
+            btn.rippleColor = colorList.withAlpha(30)
+        }
+
+        // Update all card strokes and text input layouts
+        updateAllThemedViews(findViewById(R.id.rootLayoutModel), primaryColor)
+    }
+
+    private fun updateAllThemedViews(view: View, color: Int) {
+        val colorList = ColorStateList.valueOf(color)
+        if (view is MaterialCardView) {
+            // Restore gray border for large boxes
+            view.strokeWidth = dpToPx(1f)
+            view.strokeColor = ContextCompat.getColor(this, R.color.surface_stroke)
+        } else if (view is TextInputLayout) {
+            view.setBoxStrokeColor(color)
+            view.defaultHintTextColor = colorList
+            view.hintTextColor = colorList
+        } else if (view is MaterialButton) {
+            if (view.id == R.id.buttonAddModelSetting) {
+                // Primary button - Save and Enable
+                view.backgroundTintList = colorList
+                view.setTextColor(Color.WHITE)
+            } else {
+                // Secondary buttons
+                view.strokeColor = colorList
+                view.setTextColor(color)
+                view.rippleColor = colorList.withAlpha(30)
+            }
+        } else if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                updateAllThemedViews(view.getChildAt(i), color)
+            }
+        }
+    }
+
+    private fun dpToPx(dp: Float): Int {
+        return android.util.TypedValue.applyDimension(
+            android.util.TypedValue.COMPLEX_UNIT_DIP,
+            dp,
+            resources.displayMetrics
+        ).toInt()
     }
 
     private fun setupButtonAnimations() {
@@ -107,6 +216,10 @@ class ModelSettingsActivity : AppCompatActivity() {
     }
 
     private fun animateDialogShow(dialog: AlertDialog) {
+        val themeIndex = themePrefs.getInt("theme_index", 0)
+        val primaryColors = listOf("#0CA7A5", "#3949AB", "#2E7D32", "#D81B60", "#E65100", "#7B1FA2", "#424242", "#FF8F00")
+        val primaryColor = Color.parseColor(primaryColors.getOrNull(themeIndex) ?: "#0CA7A5")
+
         dialog.window?.setBackgroundDrawableResource(R.drawable.bg_dialog_surface)
         dialog.window?.decorView?.let { decor ->
             decor.alpha = 0f
@@ -119,9 +232,8 @@ class ModelSettingsActivity : AppCompatActivity() {
                 .setDuration(180L)
                 .start()
         }
-        val accent = ContextCompat.getColor(this, R.color.accent_teal)
         val ink = ContextCompat.getColor(this, R.color.ink_700)
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accent)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(primaryColor)
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(ink)
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(ink)
     }

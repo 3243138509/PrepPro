@@ -13,6 +13,7 @@ import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -34,6 +35,7 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import android.view.View as AndroidView
+import android.app.ActivityOptions
 import android.app.Dialog
 import androidx.appcompat.app.AlertDialog
 import androidx.activity.result.contract.ActivityResultContracts
@@ -113,6 +115,9 @@ class MainActivity : AppCompatActivity() {
         private const val PREVIEW_HIDDEN_LEFT = 1
         private const val PREVIEW_HIDDEN_RIGHT = 2
         private const val PREVIEW_EDGE_REVEAL_DRAG_DP = 28f
+        private const val PREVIEW_EDGE_HANDLE_WIDTH_DP = 22f
+        private const val PREVIEW_EDGE_HANDLE_HEIGHT_DP = 120f
+        private const val PREVIEW_EDGE_HANDLE_VISUAL_INSET_DP = 2f
         private const val CONNECTION_STATE_CONNECTED = 1
         private const val CONNECTION_STATE_RECONNECTING = 2
         private const val CONNECTION_STATE_FAILED = 3
@@ -122,7 +127,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cropEditorView: CropEditorView
     private lateinit var scanQRButton: MaterialButton
     private lateinit var parseStateText: TextView
-    private lateinit var pageIndicatorText: TextView
     private lateinit var mainPager: ViewPager
     private lateinit var mainContentContainer: View
     private lateinit var captureScrollView: ScrollView
@@ -156,6 +160,7 @@ class MainActivity : AppCompatActivity() {
     private val connPrefs by lazy { getSharedPreferences("conn_prefs", MODE_PRIVATE) }
     private val floatingPrefs by lazy { getSharedPreferences("floating_preview_prefs", MODE_PRIVATE) }
     private val analysisPrefs by lazy { getSharedPreferences("analysis_prefs", MODE_PRIVATE) }
+    private val themePrefs by lazy { getSharedPreferences("theme_prefs", MODE_PRIVATE) }
 
     private var rememberedEditorState: CropEditorView.EditorState? = null
     private var isConnected = false
@@ -176,6 +181,7 @@ class MainActivity : AppCompatActivity() {
     private var clipboardDialog: AlertDialog? = null
     private var pageCaptureRoot: View? = null
     private var pageAnalysisRoot: View? = null
+    private var pageSettingsRoot: View? = null
     private var isDraggingPreview = false
     private var dragStartRawX = 0f
     private var dragStartRawY = 0f
@@ -234,8 +240,13 @@ class MainActivity : AppCompatActivity() {
 
         setupPager()
 
+        if (!prefs.getBoolean("disclaimer_agreed", false)) {
+            showDisclaimerDialog()
+        }
+
         val captureRoot = requireNotNull(pageCaptureRoot)
         val analysisRoot = requireNotNull(pageAnalysisRoot)
+        val settingsRoot = requireNotNull(pageSettingsRoot)
 
         captureScrollView = captureRoot.findViewById(R.id.captureScrollView)
         mainContentContainer = findViewById(R.id.mainContentContainer)
@@ -268,6 +279,36 @@ class MainActivity : AppCompatActivity() {
         ocrToggleButton = analysisRoot.findViewById(R.id.buttonToggleOcr)
         historyButton = analysisRoot.findViewById(R.id.buttonOpenHistory)
         copyAnalysisToPcButton = analysisRoot.findViewById(R.id.buttonCopyAnalysisToPc)
+
+        // Settings page views
+        settingsRoot.findViewById<View>(R.id.layoutModelSettings).setOnClickListener { view ->
+            val intent = Intent(this, ModelSettingsActivity::class.java).apply {
+                putExtra("host", currentHost())
+                putExtra("port", currentPort())
+            }
+            val options = ActivityOptions.makeScaleUpAnimation(view, 0, 0, view.width, view.height)
+            startActivity(intent, options.toBundle())
+        }
+        settingsRoot.findViewById<View>(R.id.layoutChatHistory).setOnClickListener { historyButton.performClick() }
+        settingsRoot.findViewById<View>(R.id.layoutDisclaimer).setOnClickListener { showDisclaimerDialog() }
+        settingsRoot.findViewById<View>(R.id.layoutAbout).setOnClickListener { showAboutDialog() }
+        settingsRoot.findViewById<View>(R.id.layoutThemeColor).setOnClickListener { view ->
+            val intent = Intent(this, ThemeSettingsActivity::class.java)
+            val options = ActivityOptions.makeScaleUpAnimation(view, 0, 0, view.width, view.height)
+            startActivity(intent, options.toBundle())
+        }
+        val textVersionValue = settingsRoot.findViewById<TextView>(R.id.textVersionValue)
+        val textThemeValue = settingsRoot.findViewById<TextView>(R.id.textThemeValue)
+        
+        applyThemeSettings()
+
+        try {
+            val pInfo = packageManager.getPackageInfo(packageName, 0)
+            textVersionValue.text = "v${pInfo.versionName}"
+        } catch (e: Exception) {
+            textVersionValue.text = "v1.0.0"
+        }
+
         markwon = Markwon.create(this)
         llamaClassifier = try {
             LlamaClassifier(this)
@@ -579,6 +620,11 @@ class MainActivity : AppCompatActivity() {
         autoReconnectIfNeeded()
     }
 
+    override fun onResume() {
+        super.onResume()
+        applyThemeSettings()
+    }
+
     override fun onPause() {
         super.onPause()
         if (isPreviewFullscreen) {
@@ -595,23 +641,166 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
+    private fun showDisclaimerDialog() {
+        val isFirstTime = !prefs.getBoolean("disclaimer_agreed", false)
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("免责声明")
+            .setMessage("本软件仅供学习交流、科研等非商业性质的用途，严禁将本软件用于商业目的。如有任何商业行为，均与本软件无关。")
+            .setCancelable(false)
+            .setPositiveButton("同意") { d, _ ->
+                prefs.edit().putBoolean("disclaimer_agreed", true).apply()
+                d.dismiss()
+            }
+            .setNegativeButton(if (isFirstTime) "退出" else "退出软件") { _, _ ->
+                finish()
+            }
+            .show()
+        animateStyledDialogShow(dialog)
+    }
+
+    private fun showAboutDialog() {
+        val version = try {
+            packageManager.getPackageInfo(packageName, 0).versionName
+        } catch (e: Exception) {
+            "1.0.0"
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("关于 PrepPro")
+            .setMessage("PrepPro 是一款旨在通过远程截图与 AI 分析提升科研与学习效率的工具。\n\n当前版本: v$version\n开源协议: MIT")
+            .setPositiveButton("确定", null)
+            .show()
+        animateStyledDialogShow(dialog)
+    }
+
+    private fun applyThemeSettings() {
+        val followSystem = themePrefs.getBoolean("follow_system", true)
+        val isDarkMode = themePrefs.getBoolean("is_dark_mode", false)
+        val themeIndex = themePrefs.getInt("theme_index", 0)
+
+        // Dark mode handling
+        if (followSystem) {
+            androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM)
+        } else {
+            androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
+                if (isDarkMode) androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
+                else androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
+            )
+        }
+
+        // Apply theme color
+        val themeNames = listOf("翠绿", "深海", "森林", "蔷薇", "落日", "薰衣草", "石墨", "琥珀")
+        val themeName = themeNames.getOrNull(themeIndex) ?: "翠绿"
+        val textThemeValue = pageSettingsRoot?.findViewById<TextView>(R.id.textThemeValue)
+        textThemeValue?.text = if (followSystem) "跟随系统 ($themeName)" else if (isDarkMode) "深色 ($themeName)" else "浅色 ($themeName)"
+        
+        // Background and button colors application
+         val primaryColors = listOf("#0CA7A5", "#3949AB", "#2E7D32", "#D81B60", "#E65100", "#7B1FA2", "#424242", "#FF8F00")
+         val backgroundColors = listOf("#D6F1EF", "#E8EAF6", "#E8F5E9", "#FCE4EC", "#FFF3E0", "#F3E5F5", "#F5F5F5", "#FFF8E1")
+         val primaryColor = Color.parseColor(primaryColors.getOrNull(themeIndex) ?: "#0CA7A5")
+         val backgroundColor = Color.parseColor(backgroundColors.getOrNull(themeIndex) ?: "#D6F1EF")
+         
+         // Apply background to root
+         findViewById<View>(R.id.rootLayoutMain)?.let { root ->
+             root.background = GradientDrawable(
+                 GradientDrawable.Orientation.TOP_BOTTOM,
+                 intArrayOf(backgroundColor, Color.WHITE)
+             )
+         }
+
+         // Update capture button and upload button color if they are initialized
+         if (::uploadAnalyzeButton.isInitialized) {
+             uploadAnalyzeButton.backgroundTintList = ColorStateList.valueOf(primaryColor)
+             uploadAnalyzeButton.setTextColor(Color.WHITE)
+         }
+         pageCaptureRoot?.findViewById<MaterialButton>(R.id.buttonCapture)?.let { btn ->
+             btn.backgroundTintList = ColorStateList.valueOf(primaryColor)
+             btn.setTextColor(Color.WHITE)
+         }
+         pageCaptureRoot?.findViewById<MaterialButton>(R.id.buttonReconnect)?.let { btn ->
+             btn.backgroundTintList = ColorStateList.valueOf(primaryColor)
+             btn.setTextColor(Color.WHITE)
+         }
+         
+         // Update fullscreen exit button
+         if (::fullscreenBackButton.isInitialized) {
+             fullscreenBackButton.setTextColor(primaryColor)
+             fullscreenBackButton.backgroundTintList = ColorStateList.valueOf(primaryColor).withAlpha(40)
+         }
+         
+         // Update all MaterialCardView, MaterialButton and TextInputLayout to match theme
+         updateAllThemedViews(findViewById(R.id.rootLayoutMain), primaryColor)
+         pageCaptureRoot?.let { root ->
+             updateAllThemedViews(root, primaryColor)
+             // Explicitly re-apply to primary buttons in case recursion missed them or they were reset
+             root.findViewById<MaterialButton>(R.id.buttonCapture)?.let { btn ->
+                 btn.backgroundTintList = ColorStateList.valueOf(primaryColor)
+                 btn.setTextColor(Color.WHITE)
+             }
+             root.findViewById<MaterialButton>(R.id.buttonReconnect)?.let { btn ->
+                 btn.backgroundTintList = ColorStateList.valueOf(primaryColor)
+                 btn.setTextColor(Color.WHITE)
+             }
+             root.findViewById<MaterialButton>(R.id.buttonRealtime)?.let { btn ->
+                 applyRealtimeButtonStyle(streamJob?.isActive == true)
+             }
+         }
+         pageAnalysisRoot?.let { root ->
+             updateAllThemedViews(root, primaryColor)
+             root.findViewById<MaterialButton>(R.id.buttonUploadAnalyze)?.let { btn ->
+                 btn.backgroundTintList = ColorStateList.valueOf(primaryColor)
+                 btn.setTextColor(Color.WHITE)
+             }
+         }
+         pageSettingsRoot?.let { updateAllThemedViews(it, primaryColor) }
+         
+         applyRealtimeButtonStyle(streamJob?.isActive == true)
+         
+         // Refresh conversation UI to apply new button colors
+         renderConversationTurns()
+     }
+
+    private fun updateAllThemedViews(view: View, color: Int) {
+        val colorList = ColorStateList.valueOf(color)
+        if (view is MaterialCardView) {
+            // Restore gray border for large containers and floating preview views
+            view.strokeWidth = dpToPx(1f)
+            view.strokeColor = ContextCompat.getColor(this, R.color.surface_stroke)
+        } else if (view is MaterialButton) {
+            // Primary buttons (filled with theme color)
+            if (view.id == R.id.buttonCapture || view.id == R.id.buttonReconnect || 
+                view.id == R.id.buttonRealtime || view.id == R.id.buttonUploadAnalyze) {
+                view.backgroundTintList = colorList
+                view.setTextColor(Color.WHITE)
+            } else {
+                // Secondary buttons (outlined with theme color)
+                view.strokeColor = colorList
+                view.setTextColor(color)
+                view.rippleColor = colorList.withAlpha(30)
+            }
+        } else if (view is com.google.android.material.textfield.TextInputLayout) {
+            view.setBoxStrokeColor(color)
+            view.defaultHintTextColor = colorList
+            view.hintTextColor = colorList
+        } else if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                updateAllThemedViews(view.getChildAt(i), color)
+            }
+        }
+    }
+
     private fun setupPager() {
         mainPager = findViewById(R.id.viewPagerMain)
-        pageIndicatorText = findViewById(R.id.textPageIndicator)
 
         val inflater = LayoutInflater.from(this)
         val page1 = inflater.inflate(R.layout.page_capture, mainPager, false)
         val page2 = inflater.inflate(R.layout.page_analysis, mainPager, false)
+        val page3 = inflater.inflate(R.layout.page_settings, mainPager, false)
         pageCaptureRoot = page1
         pageAnalysisRoot = page2
+        pageSettingsRoot = page3
 
-        mainPager.adapter = SimplePagerAdapter(listOf(page1, page2))
-        mainPager.offscreenPageLimit = 2
-        mainPager.addOnPageChangeListener(object : ViewPager.SimpleOnPageChangeListener() {
-            override fun onPageSelected(position: Int) {
-                pageIndicatorText.text = if (position == 0) "第 1 页 / 2" else "第 2 页 / 2"
-            }
-        })
+        mainPager.adapter = SimplePagerAdapter(listOf(page1, page2, page3))
+        mainPager.offscreenPageLimit = 3
     }
 
     private fun setupDisplaySpinner(spinner: Spinner, displays: List<TcpClient.DisplayInfo>) {
@@ -1147,9 +1336,16 @@ class MainActivity : AppCompatActivity() {
                 topMargin = dpToPx(10f)
             }
         }
+        val themeIndex = themePrefs.getInt("theme_index", 0)
+        val primaryColors = listOf("#0CA7A5", "#3949AB", "#2E7D32", "#D81B60", "#E65100", "#7B1FA2", "#424242", "#FF8F00")
+        val primaryColor = Color.parseColor(primaryColors.getOrNull(themeIndex) ?: "#0CA7A5")
+        val themeColorList = ColorStateList.valueOf(primaryColor)
+
         val copyBtn = MaterialButton(this).apply {
             text = "复制文本"
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            backgroundTintList = themeColorList
+            setTextColor(Color.WHITE)
             setOnClickListener { copyToSystemClipboard(turn.resultText) }
         }
         row.addView(copyBtn)
@@ -1170,6 +1366,8 @@ class MainActivity : AppCompatActivity() {
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT,
                     ).apply { topMargin = dpToPx(6f) }
+                    backgroundTintList = themeColorList
+                    setTextColor(Color.WHITE)
                     setOnClickListener {
                         val host = currentHost()
                         val port = currentPort()
@@ -1250,13 +1448,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyRealtimeButtonStyle(isRunning: Boolean) {
+        val themeIndex = themePrefs.getInt("theme_index", 0)
+        val primaryColors = listOf("#0CA7A5", "#3949AB", "#2E7D32", "#D81B60", "#E65100", "#7B1FA2", "#424242", "#FF8F00")
+        val primaryColor = Color.parseColor(primaryColors.getOrNull(themeIndex) ?: "#0CA7A5")
+
         if (isRunning) {
             val red = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.danger_red))
             realtimeButton.backgroundTintList = red
             realtimeButton.strokeColor = red
+            realtimeButton.setTextColor(Color.WHITE)
         } else {
-            realtimeButton.backgroundTintList = realtimeDefaultTint
-            realtimeButton.strokeColor = realtimeDefaultStroke
+            val colorList = ColorStateList.valueOf(primaryColor)
+            realtimeButton.backgroundTintList = colorList
+            realtimeButton.strokeColor = colorList
+            realtimeButton.setTextColor(Color.WHITE)
         }
     }
 
@@ -1749,7 +1954,7 @@ class MainActivity : AppCompatActivity() {
         val side = previewHiddenSide
         val maxX = (parentW - cardW).coerceAtLeast(0f)
         val maxY = (parentH - cardH).coerceAtLeast(0f)
-        val handleHeight = max(floatingPreviewEdgeHandle.height, dpToPx(120f)).toFloat()
+        val handleHeight = max(floatingPreviewEdgeHandle.height, dpToPx(PREVIEW_EDGE_HANDLE_HEIGHT_DP)).toFloat()
         val centeredY = (currentEdgeHandleY() + handleHeight / 2f - cardH / 2f).coerceIn(0f, maxY)
 
         previewHiddenSide = PREVIEW_HIDDEN_NONE
@@ -1771,8 +1976,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val handleW = max(floatingPreviewEdgeHandle.width, dpToPx(20f)).toFloat()
-        val handleH = max(floatingPreviewEdgeHandle.height, dpToPx(120f)).toFloat()
+        val handleH = max(floatingPreviewEdgeHandle.height, dpToPx(PREVIEW_EDGE_HANDLE_HEIGHT_DP)).toFloat()
         val previewHeight = if (previewNormalHeight > 0) previewNormalHeight.toFloat() else aspectHeightForWidth(defaultPreviewWidthPx()).toFloat()
         val maxY = (parentH - handleH).coerceAtLeast(0f)
         val handleY = (previewNormalY + (previewHeight - handleH) / 2f).coerceIn(0f, maxY)
@@ -1794,8 +1998,8 @@ class MainActivity : AppCompatActivity() {
             Gravity.END or Gravity.TOP
         }
         lp.topMargin = handleY.toInt()
-        lp.marginStart = 0
-        lp.marginEnd = 0
+        lp.marginStart = if (handleSide == PREVIEW_HIDDEN_LEFT) previewGestureSafeInsetPx(PREVIEW_HIDDEN_LEFT) else 0
+        lp.marginEnd = if (handleSide == PREVIEW_HIDDEN_RIGHT) previewGestureSafeInsetPx(PREVIEW_HIDDEN_RIGHT) else 0
         floatingPreviewEdgeHandle.layoutParams = lp
         floatingPreviewEdgeHandle.translationX = 0f
         floatingPreviewEdgeHandleText.text = if (handleSide == PREVIEW_HIDDEN_LEFT) ">" else "<"
@@ -1841,7 +2045,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             aspectHeightForWidth(previewNormalWidth.coerceAtLeast(defaultPreviewWidthPx())).toFloat()
         }
-        val handleHeight = max(floatingPreviewEdgeHandle.height, dpToPx(120f)).toFloat()
+        val handleHeight = max(floatingPreviewEdgeHandle.height, dpToPx(PREVIEW_EDGE_HANDLE_HEIGHT_DP)).toFloat()
         val maxPreviewY = (parentH - previewHeight).coerceAtLeast(0f)
         previewNormalY = (currentEdgeHandleY() + handleHeight / 2f - previewHeight / 2f).coerceIn(0f, maxPreviewY)
     }
@@ -1853,7 +2057,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setEdgeHandleY(targetY: Float) {
         val parentH = mainContentContainer.height.toFloat()
-        val handleH = max(floatingPreviewEdgeHandle.height, dpToPx(120f)).toFloat()
+        val handleH = max(floatingPreviewEdgeHandle.height, dpToPx(PREVIEW_EDGE_HANDLE_HEIGHT_DP)).toFloat()
         val maxY = (parentH - handleH).coerceAtLeast(0f)
         val clamped = targetY.coerceIn(0f, maxY)
         val lp = (floatingPreviewEdgeHandle.layoutParams as? FrameLayout.LayoutParams)
@@ -1865,14 +2069,13 @@ class MainActivity : AppCompatActivity() {
         floatingPreviewEdgeHandle.layoutParams = lp
     }
 
+    private fun previewGestureSafeInsetPx(side: Int): Int {
+        return dpToPx(PREVIEW_EDGE_HANDLE_VISUAL_INSET_DP)
+    }
+
     private fun animateFloatingPreviewToEdge(side: Int) {
         val parentW = mainContentContainer.width.toFloat()
-        val maxX = (parentW - floatingPreviewCard.width).coerceAtLeast(0f)
-        val exitX = if (side == PREVIEW_HIDDEN_LEFT) {
-            -floatingPreviewCard.width * 0.4f
-        } else {
-            maxX + floatingPreviewCard.width * 0.4f
-        }
+        val exitX = alignedPreviewXForEdge(side, parentW, floatingPreviewCard.width.toFloat())
 
         floatingPreviewCard.animate().cancel()
         floatingPreviewEdgeHandle.animate().cancel()
@@ -1906,11 +2109,7 @@ class MainActivity : AppCompatActivity() {
         else clampPreviewWidth(if (previewNormalWidth > 0) previewNormalWidth else defaultPreviewWidthPx()).toFloat()
         val maxX = (parentW - cardW).coerceAtLeast(0f)
         val restoreX = if (side == PREVIEW_HIDDEN_LEFT) 0f else maxX
-        val startX = if (side == PREVIEW_HIDDEN_LEFT) {
-            -cardW * 0.35f
-        } else {
-            maxX + cardW * 0.35f
-        }
+        val startX = alignedPreviewXForEdge(side, parentW, cardW)
 
         floatingPreviewCard.animate().cancel()
         floatingPreviewEdgeHandle.animate().cancel()
@@ -1950,6 +2149,21 @@ class MainActivity : AppCompatActivity() {
             floatingPreviewCard.scaleY = 1f
             persistFloatingPreviewPosition()
         }
+    }
+
+    private fun alignedPreviewXForEdge(side: Int, parentWidth: Float, previewWidth: Float): Float {
+        if (parentWidth <= 0f || previewWidth <= 0f) {
+            return 0f
+        }
+
+        val handleWidth = max(floatingPreviewEdgeHandle.width, dpToPx(PREVIEW_EDGE_HANDLE_WIDTH_DP)).toFloat()
+        val handleInset = previewGestureSafeInsetPx(side).toFloat()
+        val handleCenterX = if (side == PREVIEW_HIDDEN_LEFT) {
+            handleInset + handleWidth / 2f
+        } else {
+            parentWidth - handleInset - handleWidth / 2f
+        }
+        return handleCenterX - previewWidth / 2f
     }
 
     private fun enterPreviewFullscreen() {
@@ -2304,6 +2518,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun animateStyledDialogShow(dialog: AlertDialog) {
+        val themeIndex = themePrefs.getInt("theme_index", 0)
+        val primaryColors = listOf("#0CA7A5", "#3949AB", "#2E7D32", "#D81B60", "#E65100", "#7B1FA2", "#424242", "#FF8F00")
+        val primaryColor = Color.parseColor(primaryColors.getOrNull(themeIndex) ?: "#0CA7A5")
+
         dialog.window?.setBackgroundDrawableResource(R.drawable.bg_dialog_surface)
         dialog.window?.decorView?.let { decor ->
             decor.alpha = 0f
@@ -2316,9 +2534,8 @@ class MainActivity : AppCompatActivity() {
                 .setDuration(180L)
                 .start()
         }
-        val accent = ContextCompat.getColor(this, R.color.accent_teal)
         val ink = ContextCompat.getColor(this, R.color.ink_700)
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accent)
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(primaryColor)
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(ink)
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(ink)
     }

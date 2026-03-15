@@ -9,8 +9,8 @@
     <color name="ink_700">#365760</color>
     <color name="ink_600">#4A6A72</color>
 
-    <color name="surface_white">#F9FCFC</color>
-    <color name="surface_stroke">#CFE1E1</color>
+    <color name="surface_white">#FFFFFF</color>
+    <color name="surface_stroke">#D1D1D1</color>
 
     <color name="background_top">#D6F1EF</color>
     <color name="background_bottom">#EAF4F6</color>

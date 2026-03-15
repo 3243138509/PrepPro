@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rootLayoutMain"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/bg_app_gradient"
@@ -62,20 +63,10 @@
     </LinearLayout>
 
     <TextView
-        android:id="@+id/textPageIndicator"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:text="第 1 页 / 2"
-        android:textColor="@color/ink_700"
-        android:textSize="12sp"
-        android:textStyle="bold" />
-
-    <TextView
         android:id="@+id/textParseState"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="6dp"
         android:text="解析状态: 待解析"
         android:textColor="@color/ink_700"
         android:textSize="13sp"
@@ -88,7 +79,7 @@
         android:layout_marginTop="10dp"
         android:layout_weight="1">
 
-        <androidx.viewpager.widget.ViewPager
+        <com.PrepPro.mobile.widget.EdgeAwareViewPager
             android:id="@+id/viewPagerMain"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
@@ -158,11 +149,11 @@
 
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/floatingPreviewEdgeHandle"
-            android:layout_width="20dp"
+            android:layout_width="22dp"
             android:layout_height="120dp"
             android:visibility="gone"
             app:cardBackgroundColor="@color/ink_900"
-            app:cardCornerRadius="10dp"
+            app:cardCornerRadius="11dp"
             app:cardElevation="6dp"
             app:strokeColor="@color/surface_stroke"
             app:strokeWidth="1dp">
