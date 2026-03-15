@@ -28,6 +28,8 @@ windows-server/model_profiles.json
 windows-server/__pycache__/
 
 # Build artifacts - large files
+windows-server/dist/
+windows-server/build/
 windows-server/dist-installer/
 windows-server.zip
 

@@ -1,6 +1,7 @@
 param(
     [string]$InnoCompilerPath,
-    [switch]$CleanOutput
+    [switch]$CleanOutput,
+    [switch]$SkipExeBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,8 +9,8 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $issPath = Join-Path $scriptDir "installer\PrepPro.iss"
 $outputDir = Join-Path $scriptDir "dist-installer"
-$bundledPythonDir = Join-Path $scriptDir "installer\bundled-python"
-$workspaceRoot = Split-Path -Parent $scriptDir
+$distPrepProDir = Join-Path $scriptDir "dist\PrepPro"
+$buildExeScript = Join-Path $scriptDir "build-exe.ps1"
 
 function Resolve-IsccPath {
     param([string]$PreferredPath)
@@ -40,81 +41,6 @@ function Resolve-IsccPath {
     throw "ISCC.exe was not found. Install Inno Setup 6, or pass -InnoCompilerPath."
 }
 
-function Get-PythonCandidates {
-    $candidates = @()
-    $workspaceVenv = Join-Path $workspaceRoot ".venv\Scripts\python.exe"
-    $localVenv = Join-Path $scriptDir ".venv\Scripts\python.exe"
-
-    if (Test-Path $workspaceVenv) {
-        $candidates += $workspaceVenv
-    }
-    if (Test-Path $localVenv) {
-        $candidates += $localVenv
-    }
-
-    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
-    if ($pythonCmd -and $pythonCmd.Source) {
-        $candidates += $pythonCmd.Source
-    }
-
-    return @($candidates | Select-Object -Unique)
-}
-
-function Resolve-LocalPythonBaseDir {
-    $candidates = Get-PythonCandidates
-    foreach ($pythonExe in $candidates) {
-        if (-not (Test-Path $pythonExe)) {
-            continue
-        }
-
-        try {
-            $basePrefix = & $pythonExe -c "import sys; print(sys.base_prefix)" 2>$null
-            if ($LASTEXITCODE -ne 0) {
-                continue
-            }
-
-            $resolved = ($basePrefix | Select-Object -First 1).Trim()
-            if ([string]::IsNullOrWhiteSpace($resolved)) {
-                continue
-            }
-
-            $pythonFromBase = Join-Path $resolved "python.exe"
-            if (Test-Path $pythonFromBase) {
-                Write-Host "[PrepPro] Using local Python runtime source: $resolved"
-                return $resolved
-            }
-        }
-        catch {
-            continue
-        }
-    }
-
-    throw "Local Python runtime was not found. Install Python locally or ensure .venv exists before building installer."
-}
-
-function Prepare-BundledPythonRuntime {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$SourceDir,
-        [Parameter(Mandatory = $true)]
-        [string]$TargetDir
-    )
-
-    if (Test-Path $TargetDir) {
-        Remove-Item -Path $TargetDir -Recurse -Force
-    }
-
-    New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
-    Write-Host "[PrepPro] Copying local Python runtime into installer payload..."
-    Copy-Item -Path (Join-Path $SourceDir "*") -Destination $TargetDir -Recurse -Force
-
-    if (-not (Test-Path (Join-Path $TargetDir "python.exe"))) {
-        throw "Bundled Python runtime is invalid: python.exe missing in $TargetDir"
-    }
-
-    Write-Host "[PrepPro] Bundled local Python runtime ready: $TargetDir"
-}
-
 if (-not (Test-Path $issPath)) {
     throw "Installer script was not found: $issPath"
 }
@@ -123,8 +49,17 @@ if ($CleanOutput -and (Test-Path $outputDir)) {
     Remove-Item -Path $outputDir -Recurse -Force
 }
 
-$pythonBaseDir = Resolve-LocalPythonBaseDir
-Prepare-BundledPythonRuntime -SourceDir $pythonBaseDir -TargetDir $bundledPythonDir
+if (-not $SkipExeBuild) {
+    Write-Host "[PrepPro] Building exe with PyInstaller..."
+    & $buildExeScript -Clean:$CleanOutput
+    if ($LASTEXITCODE -ne 0) {
+        throw "build-exe.ps1 failed with exit code $LASTEXITCODE"
+    }
+}
+
+if (-not (Test-Path (Join-Path $distPrepProDir "PrepPro.exe"))) {
+    throw "PrepPro.exe not found at $distPrepProDir. Run build-exe.ps1 first or omit -SkipExeBuild."
+}
 
 $isccPath = Resolve-IsccPath -PreferredPath $InnoCompilerPath
 Write-Host "[PrepPro] Using Inno Setup compiler: $isccPath"

@@ -24,10 +24,16 @@ from ocr import build_prompt_with_ocr, scan_image_base64
 from protocol import recv_frame, send_frame
 
 
-_log_dir = Path(__file__).with_name("log")
+def _app_base_dir() -> Path:
+	if getattr(sys, "frozen", False):
+		return Path(sys.executable).resolve().parent
+	return Path(__file__).resolve().parent
+
+
+_log_dir = _app_base_dir() / "log"
 _log_dir.mkdir(parents=True, exist_ok=True)
 _log_file = _log_dir / "server.log"
-_app_settings_file = Path(__file__).with_name("app_settings.json")
+_app_settings_file = _app_base_dir() / "app_settings.json"
 _WINDOW_WIDTH = 830
 _WINDOW_HEIGHT = 360
 
@@ -690,8 +696,14 @@ def start_server() -> None:
         logging.info("server stopped")
 
 
+def _image_dir() -> Path:
+	if getattr(sys, "frozen", False):
+		return Path(getattr(sys, "_MEIPASS", _app_base_dir())) / "image"
+	return _app_base_dir() / "image"
+
+
 def _create_tray_icon_image() -> Image.Image:
-    icon_path = Path(__file__).with_name("image") / "icon.png"
+    icon_path = _image_dir() / "icon.png"
     if icon_path.exists():
         return Image.open(icon_path)
     # fallback: generated icon
@@ -762,7 +774,7 @@ if __name__ == "__main__":
     root.resizable(False, False)
     _enforce_window_size(root)
 
-    _icon_path = Path(__file__).with_name("image") / "icon.png"
+    _icon_path = _image_dir() / "icon.png"
     if _icon_path.exists():
         try:
             _photo = tk.PhotoImage(file=str(_icon_path))

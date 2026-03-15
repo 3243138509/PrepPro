@@ -6,8 +6,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-# Load local secrets/config from windows-server/.env when present.
-load_dotenv(Path(__file__).with_name(".env"))
+def _runtime_base_dir() -> Path:
+	if getattr(sys, "frozen", False):
+		return Path(sys.executable).resolve().parent
+	return Path(__file__).resolve().parent
+
+
+# Load local secrets/config from .env when present (next to exe when frozen).
+load_dotenv(_runtime_base_dir() / ".env")
 
 
 def _get_int(name: str, default: int) -> int:
@@ -29,12 +35,6 @@ def _get_bool(name: str, default: bool) -> bool:
 	if raw is None:
 		return default
 	return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _runtime_base_dir() -> Path:
-	if getattr(sys, "frozen", False):
-		return Path(sys.executable).resolve().parent
-	return Path(__file__).resolve().parent
 
 
 def _pick_existing_path(candidates: list[Path], fallback: Path) -> Path:
@@ -65,7 +65,7 @@ MODEL_API_KEY = os.getenv("DEEPSEEK_API_KEY", os.getenv("RC_MODEL_API_KEY", ""))
 MODEL_NAME = "deepseek-chat"
 MODEL_TIMEOUT_SECONDS = 9999.0
 
-MODEL_PROFILES_FILE = Path(__file__).with_name("model_profiles.json")
+MODEL_PROFILES_FILE = _runtime_base_dir() / "model_profiles.json"
 
 
 def _default_profile() -> dict[str, str]:
