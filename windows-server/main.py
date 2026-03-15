@@ -545,6 +545,33 @@ def handle_client(conn: socket.socket, addr: tuple[str, int]) -> None:
                 )
                 continue
 
+            if msg_type == "SYNC_MODEL_SETTINGS":
+                request_id = msg.get("requestId")
+                try:
+                    raw_profiles = msg.get("profiles", [])
+                    active_index = int(msg.get("activeIndex", 0))
+                    updated = config.replace_model_profiles(raw_profiles, active_index, persist=False)
+                    send_frame(
+                        conn,
+                        {
+                            "type": "MODEL_SETTINGS",
+                            "requestId": request_id,
+                            "profiles": updated["profiles"],
+                            "activeIndex": updated["activeIndex"],
+                        },
+                    )
+                except Exception as exc:
+                    send_frame(
+                        conn,
+                        {
+                            "type": "ERROR",
+                            "requestId": request_id,
+                            "code": "ERROR_SYNC_MODEL_SETTINGS",
+                            "message": str(exc),
+                        },
+                    )
+                continue
+
             if msg_type == "DETECT_MODELS":
                 request_id = msg.get("requestId")
                 api_url = str(msg.get("modelApiUrl", "")).strip()
@@ -987,8 +1014,8 @@ if __name__ == "__main__":
             root.state("normal")
             root.geometry(f"{_window_size['width']}x{_window_size['height']}")
             root.minsize(_window_size["width"], _window_size["height"])
-            root.lift()
-            root.focus_force()
+            # root.lift()
+            # root.focus_force()
         _gui_queue.put(_do)
 
     def _on_quit(icon, item) -> None:

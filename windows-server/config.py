@@ -120,9 +120,12 @@ def _load_model_profiles() -> tuple[list[dict[str, str]], int]:
 
 
 MODEL_PROFILES, ACTIVE_MODEL_INDEX = _load_model_profiles()
+MODEL_PROFILES_RUNTIME_ONLY = False
 
 
 def persist_model_profiles() -> None:
+	if MODEL_PROFILES_RUNTIME_ONLY:
+		return
 	MODEL_PROFILES_FILE.write_text(
 		json.dumps(
 			{
@@ -134,6 +137,40 @@ def persist_model_profiles() -> None:
 		),
 		encoding="utf-8",
 	)
+
+
+def replace_model_profiles(
+	raw_profiles: list[object],
+	active_index: int,
+	*,
+	persist: bool = False,
+) -> dict[str, object]:
+	global MODEL_PROFILES, ACTIVE_MODEL_INDEX, MODEL_PROFILES_RUNTIME_ONLY
+
+	profiles: list[dict[str, str]] = []
+	for item in raw_profiles:
+		if isinstance(item, dict):
+			profile = _normalize_profile(item)
+			if profile is not None:
+				profiles.append(profile)
+
+	if not profiles:
+		raise ValueError("profiles is empty")
+
+	MODEL_PROFILES = profiles
+	if active_index < 0 or active_index >= len(MODEL_PROFILES):
+		ACTIVE_MODEL_INDEX = 0
+	else:
+		ACTIVE_MODEL_INDEX = active_index
+
+	MODEL_PROFILES_RUNTIME_ONLY = not persist
+	if persist:
+		persist_model_profiles()
+
+	return {
+		"profiles": get_model_profiles(),
+		"activeIndex": ACTIVE_MODEL_INDEX,
+	}
 
 
 def get_model_profiles() -> list[dict[str, str]]:

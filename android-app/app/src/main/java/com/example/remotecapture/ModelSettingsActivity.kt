@@ -35,7 +35,7 @@ class ModelSettingsActivity : AppCompatActivity() {
     private var host: String = ""
     private var port: Int = 5001
     private var profiles: List<TcpClient.ModelSetting> = emptyList()
-    private var detectedModels: List<String> = emptyList()
+    private var activeProfileIndex: Int = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -135,24 +135,16 @@ class ModelSettingsActivity : AppCompatActivity() {
     }
 
     private fun loadSettings() {
-        val client = clientOrNull() ?: return
-        statusText.text = "状态: 正在加载模型配置..."
-        lifecycleScope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    client.getModelSettings()
-                }
-                bindProfiles(result.profiles, result.activeIndex)
-                statusText.text = "状态: 已加载 ${result.profiles.size} 个模型配置"
-            } catch (ex: Exception) {
-                statusText.text = "状态: 加载失败 - ${ex.message}"
-            }
-        }
+        val local = ModelSettingsStore.load(this)
+        bindProfiles(local.profiles, local.activeIndex)
+        statusText.text = "状态: 已加载手机本地 ${local.profiles.size} 个模型配置"
+        syncLocalSettingsToServer(showToast = false)
     }
 
     private fun bindProfiles(items: List<TcpClient.ModelSetting>, activeIndex: Int) {
         profiles = items
         if (items.isEmpty()) {
+            activeProfileIndex = 0
             profilesSpinner.adapter = createPrettySpinnerAdapter(listOf("(无配置)"))
             return
         }
@@ -165,6 +157,7 @@ class ModelSettingsActivity : AppCompatActivity() {
         profilesSpinner.adapter = adapter
 
         val safeIndex = activeIndex.coerceIn(0, items.lastIndex)
+        activeProfileIndex = safeIndex
         profilesSpinner.setSelection(safeIndex)
 
         val selected = items[safeIndex]
@@ -196,7 +189,6 @@ class ModelSettingsActivity : AppCompatActivity() {
                 val models = withContext(Dispatchers.IO) {
                     client.detectModels(apiUrl, apiKey)
                 }
-                detectedModels = models
                 showModelChoiceDialog(models)
                 statusText.text = "状态: 检测到 ${models.size} 个模型"
             } catch (ex: Exception) {
@@ -245,46 +237,30 @@ class ModelSettingsActivity : AppCompatActivity() {
             return
         }
 
-        val client = clientOrNull() ?: return
-
         val existingIndex = findProfileIndex(apiUrl, apiKey, modelName)
         if (existingIndex >= 0) {
-            addButton.isEnabled = false
-            statusText.text = "状态: 模型已添加，正在切换为当前..."
-            lifecycleScope.launch {
-                try {
-                    val result = withContext(Dispatchers.IO) {
-                        client.setActiveModel(existingIndex)
-                    }
-                    bindProfiles(result.profiles, result.activeIndex)
-                    statusText.text = "状态: 已添加（已切换为当前）"
-                    Toast.makeText(this@ModelSettingsActivity, "该模型已添加", Toast.LENGTH_SHORT).show()
-                } catch (ex: Exception) {
-                    statusText.text = "状态: 切换失败 - ${ex.message}"
-                } finally {
-                    addButton.isEnabled = true
-                }
-            }
+            bindProfiles(profiles, existingIndex)
+            persistLocalSettings()
+            syncLocalSettingsToServer(showToast = false)
+            statusText.text = "状态: 模型已存在，已切换为当前（手机本地）"
+            Toast.makeText(this, "该模型已添加", Toast.LENGTH_SHORT).show()
             return
         }
 
-        addButton.isEnabled = false
-        statusText.text = "状态: 正在保存模型配置..."
-
-        lifecycleScope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    client.addModelSetting(apiUrl, apiKey, modelName, setActive = true)
-                }
-                bindProfiles(result.profiles, result.activeIndex)
-                statusText.text = "状态: 已添加并启用模型"
-                Toast.makeText(this@ModelSettingsActivity, "已添加并启用", Toast.LENGTH_SHORT).show()
-            } catch (ex: Exception) {
-                statusText.text = "状态: 保存失败 - ${ex.message}"
-            } finally {
-                addButton.isEnabled = true
-            }
+        val updated = profiles.toMutableList().apply {
+            add(
+                TcpClient.ModelSetting(
+                    apiUrl = apiUrl,
+                    apiKey = apiKey,
+                    modelName = modelName,
+                )
+            )
         }
+        bindProfiles(updated, updated.lastIndex)
+        persistLocalSettings()
+        syncLocalSettingsToServer(showToast = false)
+        statusText.text = "状态: 已保存到手机并设为当前模型"
+        Toast.makeText(this, "已添加并启用", Toast.LENGTH_SHORT).show()
     }
 
     private fun applySelectedModel() {
@@ -294,24 +270,11 @@ class ModelSettingsActivity : AppCompatActivity() {
             return
         }
 
-        val client = clientOrNull() ?: return
-        useSelectedButton.isEnabled = false
-        statusText.text = "状态: 正在切换模型..."
-
-        lifecycleScope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    client.setActiveModel(selectedIndex)
-                }
-                bindProfiles(result.profiles, result.activeIndex)
-                statusText.text = "状态: 已切换当前模型"
-                Toast.makeText(this@ModelSettingsActivity, "当前模型已切换", Toast.LENGTH_SHORT).show()
-            } catch (ex: Exception) {
-                statusText.text = "状态: 切换失败 - ${ex.message}"
-            } finally {
-                useSelectedButton.isEnabled = true
-            }
-        }
+        bindProfiles(profiles, selectedIndex)
+        persistLocalSettings()
+        syncLocalSettingsToServer(showToast = false)
+        statusText.text = "状态: 已切换当前模型（手机本地）"
+        Toast.makeText(this, "当前模型已切换", Toast.LENGTH_SHORT).show()
     }
 
     private fun confirmDeleteSelectedModel() {
@@ -334,25 +297,25 @@ class ModelSettingsActivity : AppCompatActivity() {
     }
 
     private fun deleteSelectedModel(selectedIndex: Int) {
-        val client = clientOrNull() ?: return
-
-        deleteSelectedButton.isEnabled = false
-        statusText.text = "状态: 正在删除模型..."
-
-        lifecycleScope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    client.deleteModelSetting(selectedIndex)
-                }
-                bindProfiles(result.profiles, result.activeIndex)
-                statusText.text = "状态: 模型已删除"
-                Toast.makeText(this@ModelSettingsActivity, "删除成功", Toast.LENGTH_SHORT).show()
-            } catch (ex: Exception) {
-                statusText.text = "状态: 删除失败 - ${ex.message}"
-            } finally {
-                deleteSelectedButton.isEnabled = true
-            }
+        if (profiles.size <= 1) {
+            Toast.makeText(this, "至少保留一个模型配置", Toast.LENGTH_SHORT).show()
+            return
         }
+
+        val updated = profiles.toMutableList().apply {
+            removeAt(selectedIndex)
+        }
+        val nextActive = when {
+            activeProfileIndex == selectedIndex -> maxOf(0, selectedIndex - 1)
+            activeProfileIndex > selectedIndex -> activeProfileIndex - 1
+            else -> activeProfileIndex
+        }.coerceIn(0, updated.lastIndex)
+
+        bindProfiles(updated, nextActive)
+        persistLocalSettings()
+        syncLocalSettingsToServer(showToast = false)
+        statusText.text = "状态: 模型已删除（手机本地）"
+        Toast.makeText(this, "删除成功", Toast.LENGTH_SHORT).show()
     }
 
     private fun showBatchDeleteDialog() {
@@ -396,26 +359,48 @@ class ModelSettingsActivity : AppCompatActivity() {
             return
         }
 
+        val selectedSet = indices.toSet()
+        val updated = profiles.filterIndexed { index, _ -> index !in selectedSet }
+        val removedBeforeActive = indices.count { it < activeProfileIndex }
+        val activeDeleted = activeProfileIndex in selectedSet
+        val shiftedActive = if (activeDeleted) {
+            activeProfileIndex - removedBeforeActive - 1
+        } else {
+            activeProfileIndex - removedBeforeActive
+        }
+        val nextActive = if (updated.isEmpty()) 0 else shiftedActive.coerceIn(0, updated.lastIndex)
+
+        bindProfiles(updated, nextActive)
+        persistLocalSettings()
+        syncLocalSettingsToServer(showToast = false)
+        statusText.text = "状态: 已批量删除 ${indices.size} 个模型（手机本地）"
+        Toast.makeText(this, "批量删除完成", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun persistLocalSettings() {
+        ModelSettingsStore.save(this, profiles, activeProfileIndex)
+    }
+
+    private fun syncLocalSettingsToServer(showToast: Boolean) {
         val client = clientOrNull() ?: return
-        batchDeleteButton.isEnabled = false
-        statusText.text = "状态: 正在批量删除模型..."
+        if (profiles.isEmpty()) {
+            return
+        }
 
         lifecycleScope.launch {
             try {
-                val result = withContext(Dispatchers.IO) {
-                    var latest = client.getModelSettings()
-                    for (index in indices.sortedDescending()) {
-                        latest = client.deleteModelSetting(index)
-                    }
-                    latest
+                val synced = withContext(Dispatchers.IO) {
+                    client.syncModelSettings(profiles, activeProfileIndex)
                 }
-                bindProfiles(result.profiles, result.activeIndex)
-                statusText.text = "状态: 已批量删除 ${indices.size} 个模型"
-                Toast.makeText(this@ModelSettingsActivity, "批量删除完成", Toast.LENGTH_SHORT).show()
+                bindProfiles(synced.profiles, synced.activeIndex)
+                if (showToast) {
+                    Toast.makeText(this@ModelSettingsActivity, "已同步到电脑端", Toast.LENGTH_SHORT).show()
+                }
             } catch (ex: Exception) {
-                statusText.text = "状态: 批量删除失败 - ${ex.message}"
-            } finally {
-                batchDeleteButton.isEnabled = true
+                statusText.text = "状态: 已保存手机本地，电脑端同步失败 - ${ex.message}"
+                if (showToast) {
+                    Toast.makeText(this@ModelSettingsActivity, "同步失败：${ex.message}", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }

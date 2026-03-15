@@ -1454,7 +1454,14 @@ class MainActivity : AppCompatActivity() {
                 val displays = withContext(Dispatchers.IO) {
                     val client = TcpClient(host, port)
                     client.authenticateOnly()
-                    client.listDisplays()
+                    val displayResult = client.listDisplays()
+
+                    val localModelSettings = ModelSettingsStore.load(this@MainActivity)
+                    if (localModelSettings.profiles.isNotEmpty()) {
+                        client.syncModelSettings(localModelSettings.profiles, localModelSettings.activeIndex)
+                    }
+
+                    displayResult
                 }
                 knownDisplays = displays.ifEmpty { listOf(TcpClient.DisplayInfo(1, 0, 0, 0, 0)) }
                 setupDisplaySpinner(displaySpinner, knownDisplays)

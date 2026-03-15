@@ -177,7 +177,7 @@ def analyze_text_content(
     model_name = profile.get("modelName", "")
 
     if not api_key:
-        raise RuntimeError("MODEL_API_KEY is empty; set DEEPSEEK_API_KEY in .env")
+        raise RuntimeError("MODEL_API_KEY is empty; 请先在手机端配置模型 URL/KEY 并同步")
 
     if not api_url:
         raise RuntimeError("MODEL_API_URL is empty")
@@ -242,7 +242,7 @@ def analyze_image_base64(
     model_name = profile.get("modelName", "")
 
     if not api_key:
-        raise RuntimeError("MODEL_API_KEY is empty; set DEEPSEEK_API_KEY in .env")
+        raise RuntimeError("MODEL_API_KEY is empty; 请先在手机端配置模型 URL/KEY 并同步")
 
     if not api_url:
         raise RuntimeError("MODEL_API_URL is empty")

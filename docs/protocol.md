@@ -346,6 +346,48 @@
 
 ## 7. 模型配置相关
 
+### 7.0 同步手机端模型配置（推荐）
+
+客户端发送：
+
+```json
+{
+  "type": "SYNC_MODEL_SETTINGS",
+  "requestId": "uuid-string",
+  "profiles": [
+    {
+      "apiUrl": "https://api.deepseek.com",
+      "apiKey": "sk-...",
+      "modelName": "deepseek-chat"
+    }
+  ],
+  "activeIndex": 0
+}
+```
+
+服务端返回：
+
+```json
+{
+  "type": "MODEL_SETTINGS",
+  "requestId": "uuid-string",
+  "profiles": [
+    {
+      "apiUrl": "https://api.deepseek.com",
+      "apiKey": "sk-...",
+      "modelName": "deepseek-chat"
+    }
+  ],
+  "activeIndex": 0
+}
+```
+
+说明：
+
+- 推荐由手机端本地持久化 `apiUrl/apiKey/modelName`，每次连接后调用该接口同步到电脑端运行时。
+- 当前实现中，这次同步默认不会写入电脑端 `model_profiles.json`，用于避免因电脑端升级覆盖导致模型配置丢失。
+- 失败错误码：`ERROR_SYNC_MODEL_SETTINGS`
+
 ### 7.1 获取模型配置
 
 客户端发送：

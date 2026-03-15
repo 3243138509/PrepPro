@@ -637,6 +637,41 @@ class TcpClient(
         }
     }
 
+    fun syncModelSettings(
+        profiles: List<ModelSetting>,
+        activeIndex: Int,
+    ): ModelSettingsResult {
+        if (profiles.isEmpty()) {
+            throw IllegalArgumentException("profiles is empty")
+        }
+        return withAuthedSocket(DEFAULT_READ_TIMEOUT_MS) { input, output ->
+            val requestId = UUID.randomUUID().toString()
+            val profilesJson = org.json.JSONArray()
+            profiles.forEach { profile ->
+                profilesJson.put(
+                    JSONObject().apply {
+                        put("apiUrl", profile.apiUrl)
+                        put("apiKey", profile.apiKey)
+                        put("modelName", profile.modelName)
+                    }
+                )
+            }
+
+            Frames.sendJson(output, JSONObject().apply {
+                put("type", "SYNC_MODEL_SETTINGS")
+                put("requestId", requestId)
+                put("profiles", profilesJson)
+                put("activeIndex", activeIndex)
+            })
+
+            val response = Frames.readJson(input)
+            if (response.optString("requestId") != requestId) {
+                throw IllegalStateException("requestId mismatch")
+            }
+            parseModelSettingsResponse(response)
+        }
+    }
+
     fun detectModels(modelApiUrl: String, modelApiKey: String): List<String> {
         return withAuthedSocket(ANALYZE_READ_TIMEOUT_MS) { input, output ->
             val requestId = UUID.randomUUID().toString()
